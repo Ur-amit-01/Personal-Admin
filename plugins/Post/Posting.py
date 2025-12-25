@@ -1,5 +1,6 @@
 from pyrogram import Client, filters
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from pyrogram.errors import ChatAdminRequired, ChatWriteForbidden, ChatRestricted, ChannelPrivate, UserNotParticipant
 from plugins.helper.db import db
 import time
 import random
@@ -140,6 +141,42 @@ async def handle_deletion_results(client, deletion_tasks, post_id, delay_seconds
     except Exception as e:
         print(f"Error in handle_deletion_results: {e}")
 
+def is_restricted_error(error_msg):
+    """Check if error indicates a restricted channel"""
+    if not error_msg:
+        return False
+    
+    error_msg_lower = str(error_msg).lower()
+    
+    # Check for various error patterns that indicate restricted access
+    restricted_patterns = [
+        "chat_restricted",
+        "chat_write_forbidden",
+        "chat_admin_required",
+        "channel_private",
+        "user_not_participant",
+        "forbidden",
+        "restricted",
+        "not allowed",
+        "no rights",
+        "no access",
+        "bot was blocked",
+        "bot kicked",
+        "bot is not a member",
+        "need administrator rights",
+        "admin rights",
+        "400",  # HTTP bad request often means permission issues
+        "403",   # HTTP forbidden
+        "message_",  # Pyrogram message errors often indicate permission issues
+        "peermigrated",  # Channel migrated
+        "channel_invalid",  # Invalid channel
+        "username_not_occupied",  # Channel doesn't exist
+        "username_invalid",  # Invalid username
+        "channels_admin_required"  # Admin required in channels
+    ]
+    
+    return any(pattern in error_msg_lower for pattern in restricted_patterns)
+
 @Client.on_message(filters.command(["post", "post0", "post1", "post2", "post3"]) & filters.private & admin_filter)
 async def send_post(client, message: Message):
     try:
@@ -229,8 +266,15 @@ async def send_post(client, message: Message):
             channel_name = channel.get("name", str(channel["channel_id"]))
             
             # Check if error is due to restricted channel
-            is_restricted = any(keyword in error_msg.lower() for keyword in 
-                               ["chat_restricted", "restricted", "not allowed", "no rights", "forbidden"])
+            is_restricted = is_restricted_error(error_msg)
+            
+            channel_data = {
+                "channel_id": channel["channel_id"],
+                "channel_name": channel_name,
+                "error": error_msg[:200],
+                "is_restricted": is_restricted,
+                "full_error": error_msg
+            }
             
             if is_restricted:
                 restricted_channels.append({
@@ -239,19 +283,8 @@ async def send_post(client, message: Message):
                     "error": "Restricted/Bot not admin",
                     "group": group
                 })
-                failed_channels.append({
-                    "channel_id": channel["channel_id"],
-                    "channel_name": channel_name,
-                    "error": "Restricted/Bot not admin",
-                    "is_restricted": True
-                })
-            else:
-                failed_channels.append({
-                    "channel_id": channel["channel_id"],
-                    "channel_name": channel_name,
-                    "error": error_msg[:200],
-                    "is_restricted": False
-                })
+            
+            failed_channels.append(channel_data)
 
     # Save post with deletion info if needed
     post_data = {
@@ -296,19 +329,21 @@ async def send_post(client, message: Message):
             result_msg += "<b>Failed Channels:</b>\n"
             for idx, channel in enumerate(failed_channels, 1):
                 error_type = "🔒 RESTRICTED" if channel.get("is_restricted") else "❌ Error"
-                result_msg += f"{idx}. {channel['channel_name']} - {error_type}\n"
+                error_text = channel.get("error", "Unknown error")
+                result_msg += f"{idx}. {channel['channel_name']} - {error_type}: {error_text}\n"
         else:
             result_msg += "<i>Too many failed channels to display (see logs for details)</i>\n"
 
-    # Create buttons
+    # Create buttons - ALWAYS show remove failed channels button if there are failed channels
     buttons = []
     
     # Delete post button
     buttons.append([InlineKeyboardButton("🗑 Delete This Post", callback_data=f"delete_{post_id}")])
     
-    # Add remove restricted channels button if there are restricted channels
+    # ALWAYS show remove failed channels button if there are ANY failed channels
     if failed_channels:
-        buttons.append([InlineKeyboardButton("🗝️ Remove Failed Channels", 
+        # Show "Remove Failed Channels" button
+        buttons.append([InlineKeyboardButton("🔧 Remove Failed Channels", 
                                            callback_data=f"remove_failed_{post_id}_{group}")])
 
     reply_markup = InlineKeyboardMarkup(buttons)
@@ -328,7 +363,7 @@ async def send_post(client, message: Message):
             log_msg += f"\n❌ <b>Failed Channels ({len(failed_channels)}):</b>\n"
             for channel in failed_channels[:15]:
                 error_type = "RESTRICTED" if channel.get("is_restricted") else "ERROR"
-                log_msg += f"  - {channel['channel_name']}: {error_type}\n"
+                log_msg += f"  - {channel['channel_name']}: {error_type} - {channel.get('error', 'Unknown')}\n"
             if len(failed_channels) > 15:
                 log_msg += f"  ...and {len(failed_channels)-15} more"
         
@@ -434,8 +469,15 @@ async def forward_post(client, message: Message):
             channel_name = channel.get("name", str(channel["channel_id"]))
             
             # Check if error is due to restricted channel
-            is_restricted = any(keyword in error_msg.lower() for keyword in 
-                               ["chat_restricted", "restricted", "not allowed", "no rights", "forbidden"])
+            is_restricted = is_restricted_error(error_msg)
+            
+            channel_data = {
+                "channel_id": channel["channel_id"],
+                "channel_name": channel_name,
+                "error": error_msg[:200],
+                "is_restricted": is_restricted,
+                "full_error": error_msg
+            }
             
             if is_restricted:
                 restricted_channels.append({
@@ -444,19 +486,8 @@ async def forward_post(client, message: Message):
                     "error": "Restricted/Bot not admin",
                     "group": group
                 })
-                failed_channels.append({
-                    "channel_id": channel["channel_id"],
-                    "channel_name": channel_name,
-                    "error": "Restricted/Bot not admin",
-                    "is_restricted": True
-                })
-            else:
-                failed_channels.append({
-                    "channel_id": channel["channel_id"],
-                    "channel_name": channel_name,
-                    "error": error_msg[:200],
-                    "is_restricted": False
-                })
+            
+            failed_channels.append(channel_data)
 
     post_data = {
         "post_id": post_id,
@@ -501,7 +532,8 @@ async def forward_post(client, message: Message):
             result_msg += "<b>Failed Channels:</b>\n"
             for idx, channel in enumerate(failed_channels, 1):
                 error_type = "🔒 RESTRICTED" if channel.get("is_restricted") else "❌ Error"
-                result_msg += f"{idx}. {channel['channel_name']} - {error_type}\n"
+                error_text = channel.get("error", "Unknown error")
+                result_msg += f"{idx}. {channel['channel_name']} - {error_type}: {error_text}\n"
         else:
             result_msg += "<i>Too many failed channels to display (see logs for details)</i>\n"
 
@@ -511,9 +543,10 @@ async def forward_post(client, message: Message):
     # Delete post button
     buttons.append([InlineKeyboardButton("🗑 Delete This Post", callback_data=f"delete_{post_id}")])
     
-    # Add remove restricted channels button if there are restricted channels
+    # ALWAYS show remove failed channels button if there are ANY failed channels
     if failed_channels:
-        buttons.append([InlineKeyboardButton("🔒 Remove Failed Channels", 
+        # Show "Remove Failed Channels" button
+        buttons.append([InlineKeyboardButton("🔧 Remove Failed Channels", 
                                            callback_data=f"remove_failed_{post_id}_{group}")])
 
     reply_markup = InlineKeyboardMarkup(buttons)
@@ -533,7 +566,7 @@ async def forward_post(client, message: Message):
             log_msg += f"\n❌ <b>Failed Channels ({len(failed_channels)}):</b>\n"
             for channel in failed_channels[:15]:
                 error_type = "RESTRICTED" if channel.get("is_restricted") else "ERROR"
-                log_msg += f"  - {channel['channel_name']}: {error_type}\n"
+                log_msg += f"  - {channel['channel_name']}: {error_type} - {channel.get('error', 'Unknown')}\n"
             if len(failed_channels) > 15:
                 log_msg += f"  ...and {len(failed_channels)-15} more"
         
@@ -554,9 +587,9 @@ async def forward_post(client, message: Message):
             )
         )
 
-# Callback handler for removing restricted channels
-@Client.on_callback_query(filters.regex(r"^remove_restricted_"))
-async def remove_restricted_channels(client, callback_query: CallbackQuery):
+# Callback handler for removing failed channels (both restricted and other failed channels)
+@Client.on_callback_query(filters.regex(r"^remove_(restricted|failed)_"))
+async def remove_failed_channels(client, callback_query: CallbackQuery):
     await callback_query.answer()
     
     # Parse callback data
@@ -565,26 +598,33 @@ async def remove_restricted_channels(client, callback_query: CallbackQuery):
         await callback_query.message.reply("Invalid callback data.")
         return
     
+    action_type = data[1]  # "restricted" or "failed"
     post_id = int(data[2])
     group = data[3]
     
-    # Get the post to find restricted channels
+    # Get the post to find failed channels
     post = await db.get_post(post_id)
     if not post:
         await callback_query.message.reply("Post not found.")
         return
     
-    # Get restricted channels from the post
-    restricted_channels = post.get("restricted_channels", [])
-    if not restricted_channels:
-        await callback_query.message.reply("No restricted channels found for this post.")
+    # Determine which channels to remove based on action type
+    if action_type == "restricted":
+        channels_to_remove = post.get("restricted_channels", [])
+        button_text = "Restricted Channels"
+    else:  # "failed"
+        channels_to_remove = post.get("failed_channels", [])
+        button_text = "Failed Channels"
+    
+    if not channels_to_remove:
+        await callback_query.message.reply(f"No {button_text.lower()} found for this post.")
         return
     
-    # Remove restricted channels from database
+    # Remove channels from database
     removed_channels = []
     failed_removals = []
     
-    for channel in restricted_channels:
+    for channel in channels_to_remove:
         try:
             # Remove channel from specific group
             await db.delete_channel(channel["channel_id"], group)
@@ -597,7 +637,7 @@ async def remove_restricted_channels(client, callback_query: CallbackQuery):
     
     # Update confirmation message
     result_msg = (
-        f"<blockquote>🔒 <b>Restricted Channels Removed</b></blockquote>\n\n"
+        f"<blockquote>🔧 <b>{button_text} Removed</b></blockquote>\n\n"
         f"• <b>Group:</b> {group}\n"
         f"• <b>Post ID:</b> <code>{post_id}</code>\n"
         f"• <b>Removed:</b> {len(removed_channels)} channel(s)\n"
@@ -624,7 +664,7 @@ async def remove_restricted_channels(client, callback_query: CallbackQuery):
     # Log the action
     try:
         log_msg = (
-            f"🔒 <blockquote><b>Restricted Channels Removed</b></blockquote>\n\n"
+            f"🔧 <blockquote><b>{button_text} Removed</b></blockquote>\n\n"
             f"👤 <b>Action By:</b> {callback_query.from_user.mention}\n"
             f"📌 <b>Post ID:</b> <code>{post_id}</code>\n"
             f"📌 <b>Group:</b> {group}\n"
@@ -641,7 +681,7 @@ async def remove_restricted_channels(client, callback_query: CallbackQuery):
             text=log_msg
         )
     except Exception as e:
-        print(f"Error logging restricted channel removal: {e}")
+        print(f"Error logging {button_text.lower()} removal: {e}")
 
 # Callback handler for deleting posts (existing functionality)
 @Client.on_callback_query(filters.regex(r"^delete_"))
