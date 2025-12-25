@@ -587,101 +587,99 @@ async def forward_post(client, message: Message):
             )
         )
 
-# Callback handler for removing failed channels (both restricted and other failed channels)
-@Client.on_callback_query(filters.regex(r"^remove_(restricted|failed)_"))
-async def remove_failed_channels(client, callback_query: CallbackQuery):
-    await callback_query.answer()
+# Callback handler for removing failed channels
+@Client.on_callback_query(filters.regex(r"^remove_failed_"))
+async def remove_failed_channels_handler(client, callback_query: CallbackQuery):
+    await callback_query.answer("Removing failed channels...")
     
-    # Parse callback data
-    data = callback_query.data.split("_")
-    if len(data) != 4:
-        await callback_query.message.reply("Invalid callback data.")
-        return
-    
-    action_type = data[1]  # "restricted" or "failed"
-    post_id = int(data[2])
-    group = data[3]
-    
-    # Get the post to find failed channels
-    post = await db.get_post(post_id)
-    if not post:
-        await callback_query.message.reply("Post not found.")
-        return
-    
-    # Determine which channels to remove based on action type
-    if action_type == "restricted":
-        channels_to_remove = post.get("restricted_channels", [])
-        button_text = "Restricted Channels"
-    else:  # "failed"
-        channels_to_remove = post.get("failed_channels", [])
-        button_text = "Failed Channels"
-    
-    if not channels_to_remove:
-        await callback_query.message.reply(f"No {button_text.lower()} found for this post.")
-        return
-    
-    # Remove channels from database
-    removed_channels = []
-    failed_removals = []
-    
-    for channel in channels_to_remove:
-        try:
-            # Remove channel from specific group
-            await db.delete_channel(channel["channel_id"], group)
-            removed_channels.append(channel["channel_name"])
-        except Exception as e:
-            failed_removals.append({
-                "channel_name": channel["channel_name"],
-                "error": str(e)[:100]
-            })
-    
-    # Update confirmation message
-    result_msg = (
-        f"<blockquote>🔧 <b>{button_text} Removed</b></blockquote>\n\n"
-        f"• <b>Group:</b> {group}\n"
-        f"• <b>Post ID:</b> <code>{post_id}</code>\n"
-        f"• <b>Removed:</b> {len(removed_channels)} channel(s)\n"
-    )
-    
-    if removed_channels:
-        result_msg += "\n<b>Removed Channels:</b>\n"
-        for idx, channel_name in enumerate(removed_channels, 1):
-            result_msg += f"{idx}. {channel_name}\n"
-    
-    if failed_removals:
-        result_msg += f"\n<b>Failed to remove:</b> {len(failed_removals)} channel(s)\n"
-        for idx, fail in enumerate(failed_removals[:5], 1):
-            result_msg += f"{idx}. {fail['channel_name']} - {fail['error']}\n"
-    
-    # Remove the button after action
-    buttons = [
-        [InlineKeyboardButton("🗑 Delete This Post", callback_data=f"delete_{post_id}")]
-    ]
-    reply_markup = InlineKeyboardMarkup(buttons)
-    
-    await callback_query.message.edit_text(result_msg, reply_markup=reply_markup)
-    
-    # Log the action
     try:
-        log_msg = (
-            f"🔧 <blockquote><b>{button_text} Removed</b></blockquote>\n\n"
-            f"👤 <b>Action By:</b> {callback_query.from_user.mention}\n"
-            f"📌 <b>Post ID:</b> <code>{post_id}</code>\n"
-            f"📌 <b>Group:</b> {group}\n"
-            f"🗑 <b>Removed:</b> {len(removed_channels)} channel(s)\n"
+        # Parse callback data
+        data = callback_query.data.split("_")
+        if len(data) != 4:
+            await callback_query.message.edit_text("❌ Invalid callback data.")
+            return
+        
+        post_id = int(data[2])
+        group = data[3]
+        
+        # Get the post to find failed channels
+        post = await db.get_post(post_id)
+        if not post:
+            await callback_query.message.edit_text("❌ Post not found.")
+            return
+        
+        # Get failed channels from the post
+        failed_channels = post.get("failed_channels", [])
+        if not failed_channels:
+            await callback_query.message.edit_text("❌ No failed channels found for this post.")
+            return
+        
+        # Remove failed channels from database
+        removed_channels = []
+        failed_removals = []
+        
+        for channel in failed_channels:
+            try:
+                # Remove channel from specific group
+                await db.delete_channel(channel["channel_id"], group)
+                removed_channels.append(channel["channel_name"])
+            except Exception as e:
+                failed_removals.append({
+                    "channel_name": channel["channel_name"],
+                    "error": str(e)[:100]
+                })
+        
+        # Update confirmation message
+        result_msg = (
+            f"<blockquote>🔧 <b>Failed Channels Removed</b></blockquote>\n\n"
+            f"• <b>Group:</b> {group}\n"
+            f"• <b>Post ID:</b> <code>{post_id}</code>\n"
+            f"• <b>Removed:</b> {len(removed_channels)} channel(s)\n"
         )
         
         if removed_channels:
-            log_msg += "\n<b>Removed Channels:</b>\n"
-            for channel_name in removed_channels[:10]:
-                log_msg += f"  - {channel_name}\n"
+            result_msg += "\n<b>Removed Channels:</b>\n"
+            for idx, channel_name in enumerate(removed_channels, 1):
+                result_msg += f"{idx}. {channel_name}\n"
         
-        await client.send_message(
-            chat_id=LOG_CHANNEL,
-            text=log_msg
-        )
+        if failed_removals:
+            result_msg += f"\n<b>Failed to remove:</b> {len(failed_removals)} channel(s)\n"
+            for idx, fail in enumerate(failed_removals[:5], 1):
+                result_msg += f"{idx}. {fail['channel_name']} - {fail['error']}\n"
+        
+        # Remove the button after action
+        buttons = [
+            [InlineKeyboardButton("🗑 Delete This Post", callback_data=f"delete_{post_id}")]
+        ]
+        reply_markup = InlineKeyboardMarkup(buttons)
+        
+        await callback_query.message.edit_text(result_msg, reply_markup=reply_markup)
+        
+        # Log the action
+        try:
+            log_msg = (
+                f"🔧 <blockquote><b>Failed Channels Removed</b></blockquote>\n\n"
+                f"👤 <b>Action By:</b> {callback_query.from_user.mention}\n"
+                f"📌 <b>Post ID:</b> <code>{post_id}</code>\n"
+                f"📌 <b>Group:</b> {group}\n"
+                f"🗑 <b>Removed:</b> {len(removed_channels)} channel(s)\n"
+            )
+            
+            if removed_channels:
+                log_msg += "\n<b>Removed Channels:</b>\n"
+                for channel_name in removed_channels[:10]:
+                    log_msg += f"  - {channel_name}\n"
+            
+            await client.send_message(
+                chat_id=LOG_CHANNEL,
+                text=log_msg
+            )
+        except Exception as e:
+            print(f"Error logging failed channels removal: {e}")
+            
     except Exception as e:
-        print(f"Error logging {button_text.lower()} removal: {e}")
+        await callback_query.message.edit_text(f"❌ Error: {str(e)[:200]}")
+        print(f"Error in remove_failed_channels_handler: {e}")
 
 # Callback handler for deleting posts (existing functionality)
 @Client.on_callback_query(filters.regex(r"^delete_"))
