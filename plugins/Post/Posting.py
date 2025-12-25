@@ -307,9 +307,9 @@ async def send_post(client, message: Message):
     buttons.append([InlineKeyboardButton("🗑 Delete This Post", callback_data=f"delete_{post_id}")])
     
     # Add remove restricted channels button if there are restricted channels
-    if restricted_channels:
-        buttons.append([InlineKeyboardButton("🔒 Remove Restricted Channels", 
-                                           callback_data=f"remove_restricted_{post_id}_{group}")])
+    if failed_channels:
+        buttons.append([InlineKeyboardButton("🗝️ Remove Failed Channels", 
+                                           callback_data=f"remove_failed_{post_id}_{group}")])
 
     reply_markup = InlineKeyboardMarkup(buttons)
 
@@ -512,9 +512,9 @@ async def forward_post(client, message: Message):
     buttons.append([InlineKeyboardButton("🗑 Delete This Post", callback_data=f"delete_{post_id}")])
     
     # Add remove restricted channels button if there are restricted channels
-    if restricted_channels:
-        buttons.append([InlineKeyboardButton("🔒 Remove Restricted Channels", 
-                                           callback_data=f"remove_restricted_{post_id}_{group}")])
+    if failed_channels:
+        buttons.append([InlineKeyboardButton("🔒 Remove Failed Channels", 
+                                           callback_data=f"remove_failed_{post_id}_{group}")])
 
     reply_markup = InlineKeyboardMarkup(buttons)
 
