@@ -177,8 +177,68 @@ def is_restricted_error(error_msg):
     
     return any(pattern in error_msg_lower for pattern in restricted_patterns)
 
+# Callback handler for confirmation
+@Client.on_callback_query(filters.regex(r"^confirm_post_(yes|no)_"))
+async def handle_post_confirmation(client, callback_query: CallbackQuery):
+    """Handle confirmation for post/fpost commands"""
+    try:
+        await callback_query.answer()
+        
+        data = callback_query.data.split("_")
+        action = data[2]  # yes or no
+        command_type = data[3]  # post or fpost
+        user_id = int(data[4])
+        
+        # Check if this callback is for the right user
+        if callback_query.from_user.id != user_id:
+            await callback_query.answer("❌ This confirmation is not for you!", show_alert=True)
+            return
+        
+        # Remove from pending confirmations
+        pending_data = pending_confirmations.pop(callback_query.message.id, None)
+        
+        if not pending_data:
+            await callback_query.message.edit_text("❌ This confirmation has expired.")
+            return
+        
+        if action == "no":
+            # User clicked No, cancel the operation
+            await callback_query.message.edit_text(
+                "❌ **Posting cancelled.**\n\n"
+                "The operation has been cancelled as requested."
+            )
+            return
+        
+        # User clicked Yes, proceed with the operation
+        message = pending_data["message"]
+        post_content = pending_data["post_content"]
+        group = pending_data["group"]
+        delete_after = pending_data["delete_after"]
+        time_input = pending_data["time_input"]
+        
+        # Update the confirmation message to show processing
+        await callback_query.message.edit_text(
+            f"**✅ Confirmed! Processing your {command_type} command...**\n\n"
+            f"**Group:** {group}\n"
+            f"**Auto-delete:** {format_time(delete_after) if delete_after else 'No'}"
+        )
+        
+        # Call the appropriate function based on command type
+        if command_type == "post":
+            await process_post_command(client, message, post_content, group, delete_after, time_input, callback_query.message.id)
+        else:  # fpost
+            await process_fpost_command(client, message, post_content, group, delete_after, time_input, callback_query.message.id)
+            
+    except Exception as e:
+        print(f"Error in handle_post_confirmation: {e}")
+        try:
+            await callback_query.message.edit_text(f"❌ Error processing confirmation: {str(e)[:200]}")
+        except:
+            pass
+
 @Client.on_message(filters.command(["post", "post0", "post1", "post2", "post3"]) & filters.private & admin_filter)
 async def send_post(client, message: Message):
+    """Handle /post command with confirmation"""
     try:
         await message.react(emoji=random.choice(REACTIONS), big=True)
     except:
@@ -218,6 +278,72 @@ async def send_post(client, message: Message):
         await message.reply(f"**No channels connected in group {group} yet.**")
         return
 
+    # Create confirmation message
+    channels_count = len(channels)
+    time_str = format_time(delete_after) if delete_after else "No auto-delete"
+    
+    confirmation_text = (
+        f"<blockquote>⚠️ <b>POSTING CONFIRMATION</b></blockquote>\n\n"
+        f"• <b>Command:</b> /{cmd}\n"
+        f"• <b>Group:</b> {group}\n"
+        f"• <b>Channels:</b> {channels_count} channels\n"
+        f"• <b>Auto-delete:</b> {time_str}\n\n"
+        f"<i>Are you sure you want to post this message to {channels_count} channel(s)?</i>"
+    )
+    
+    # Create confirmation buttons
+    buttons = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("✅ Yes, Post It", 
+                               callback_data=f"confirm_post_yes_post_{message.from_user.id}"),
+            InlineKeyboardButton("❌ No, Cancel", 
+                               callback_data=f"confirm_post_no_post_{message.from_user.id}")
+        ]
+    ])
+    
+    # Send confirmation message
+    confirmation_msg = await message.reply(
+        confirmation_text,
+        reply_markup=buttons,
+        reply_to_message_id=post_content.id
+    )
+    
+    # Store the confirmation data
+    pending_confirmations[confirmation_msg.id] = {
+        "message": message,
+        "post_content": post_content,
+        "group": group,
+        "delete_after": delete_after,
+        "time_input": time_input,
+        "user_id": message.from_user.id
+    }
+    
+    # Set a timeout to clean up pending confirmation (5 minutes)
+    async def clean_pending_confirmation():
+        await asyncio.sleep(300)  # 5 minutes
+        if confirmation_msg.id in pending_confirmations:
+            try:
+                await confirmation_msg.edit_text(
+                    "❌ **Confirmation expired.**\n\n"
+                    "Please send the command again if you still want to post."
+                )
+                pending_confirmations.pop(confirmation_msg.id, None)
+            except:
+                pass
+    
+    asyncio.create_task(clean_pending_confirmation())
+
+async def process_post_command(client, message, post_content, group, delete_after, time_input, confirmation_msg_id):
+    """Process the post command after confirmation"""
+    channels = await db.get_channels_by_group(group)
+    if not channels:
+        await client.edit_message_text(
+            chat_id=message.chat.id,
+            message_id=confirmation_msg_id,
+            text=f"**No channels connected in group {group} yet.**"
+        )
+        return
+
     post_id = int(time.time())
     sent_messages = []
     success_count = 0
@@ -225,9 +351,11 @@ async def send_post(client, message: Message):
     failed_channels = []
     restricted_channels = []  # Track restricted channels separately
 
-    processing_msg = await message.reply(
-        f"**📢 Posting to {total_channels} channels in group {group}...**",
-        reply_to_message_id=post_content.id
+    processing_msg = await client.edit_message_text(
+        chat_id=message.chat.id,
+        message_id=confirmation_msg_id,
+        text=f"**📢 Posting to {total_channels} channels in group {group}...**",
+        reply_markup=None
     )
 
     deletion_tasks = []
@@ -382,7 +510,7 @@ async def send_post(client, message: Message):
                 post_id=post_id,
                 delay_seconds=delete_after
             )
-        )
+    )
 
 @Client.on_message(filters.command(["fpost", "fpost0", "fpost1", "fpost2", "fpost3"]) & filters.private & admin_filter)
 async def forward_post(client, message: Message):
