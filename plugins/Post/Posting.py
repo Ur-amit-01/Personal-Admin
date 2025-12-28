@@ -482,12 +482,17 @@ async def process_post_command(client, message, post_content, group, delete_afte
     await processing_msg.edit_text(result_msg, reply_markup=reply_markup)
 
     try:
+
+        bot_me = await client.get_me()
+        bot_username = bot_me.username
+        
         log_msg = (
-            f"📢 <blockquote><b>#Post | Group {group} | @Interferons_bot</b></blockquote>\n\n"
+            f"<blockquote><b>📢 #Post | @{bot_username}</b></blockquote>\n\n"
             f"👤 <b>Posted By:</b> {message.from_user.mention}\n"
             f"📌 <b>Post ID:</b> <code>{post_id}</code>\n"
             f"📡 <b>Sent to:</b> {success_count}/{total_channels} channels\n"
             f"⏳ <b>Auto-delete:</b> {time_str if delete_after else 'No'}\n"
+            f"<blockquote><b> 🤖 #{bot_username}</b></blockquote>"
         )
         
         if failed_channels:
@@ -758,13 +763,19 @@ async def process_fpost_command(client, message, post_content, group, delete_aft
     await processing_msg.edit_text(result_msg, reply_markup=reply_markup)
 
     try:
+
+        bot_me = await client.get_me()
+        bot_username = bot_me.username
+        
         log_msg = (
-            f"📢 <blockquote><b>#FPost | Group {group} | @Interferons_bot</b></blockquote>\n\n"
+            f"<blockquote><b>📢 #Fpost | @{bot_username}</b></blockquote>\n\n"
             f"👤 <b>Forwarded By:</b> {message.from_user.mention}\n"
             f"📌 <b>Post ID:</b> <code>{post_id}</code>\n"
             f"📡 <b>Sent to:</b> {success_count}/{total_channels} channels\n"
             f"⏳ <b>Auto-delete:</b> {time_str if delete_after else 'No'}\n"
+            f"<blockquote><b> 🤖 #{bot_username}</b></blockquote>"
         )
+
         
         if failed_channels:
             log_msg += f"\n❌ <b>Failed Channels ({len(failed_channels)}):</b>\n"
