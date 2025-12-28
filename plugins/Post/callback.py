@@ -11,7 +11,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Define callback prefixes that should be ignored (handled by admin.py)
+# Define callback prefixes that should be ignored (handled by admin.py or other handlers)
 ADMIN_PREFIXES = {
     "admin_", 
     "promote_", 
@@ -22,14 +22,49 @@ ADMIN_PREFIXES = {
     "broadcast_",
     "stats_",
     "back_",
-    "remove_failed_",  # Add this
-    "remove_restricted_",  # Add this too if you use it
-    "delete_"  # Already handled separately, but good to be explicit
+    "remove_failed_",
+    "remove_restricted_",
+    "delete_",
     "confirm_post_"  # ADD THIS LINE - for Yes/No confirmation buttons
 }
 
-# Add remove_failed_ and remove_restricted_ to the negative lookahead
-@Client.on_callback_query(filters.regex(r'^(?!admin_|promote_|demote_|list_|backup_|restore_|broadcast_|stats_|back_|remove_failed_|remove_restricted_).*'))
+# Handler for confirmation callbacks (Yes/No buttons)
+@Client.on_callback_query(filters.regex(r"^confirm_post_(yes|no)_"))
+async def handle_post_confirmation(client: Client, query: CallbackQuery):
+    """Handle confirmation for post/fpost commands"""
+    try:
+        await query.answer()
+        data = query.data.split("_")
+        action = data[2]  # yes or no
+        command_type = data[3]  # post or fpost
+        user_id = int(data[4])
+        
+        # Check if this callback is for the right user
+        if query.from_user.id != user_id:
+            await query.answer("❌ This confirmation is not for you!", show_alert=True)
+            return
+        
+        if action == "no":
+            # User clicked No, cancel the operation
+            await query.message.edit_text(
+                "❌ **Posting cancelled.**\n\n"
+                "The operation has been cancelled as requested."
+            )
+        else:
+            # User clicked Yes - this should be handled in posting.py
+            # We'll just show a message and let posting.py handle the actual posting
+            await query.message.edit_text(
+                f"✅ **Confirmation received!**\n\n"
+                f"Processing your {command_type} command..."
+            )
+            # The actual posting logic is handled in posting.py
+        
+    except Exception as e:
+        logger.error(f"Error in confirmation handler: {e}", exc_info=True)
+        await query.answer(f"Error: {str(e)}", show_alert=True)
+
+# Update the regex to exclude confirmation callbacks
+@Client.on_callback_query(filters.regex(r'^(?!admin_|promote_|demote_|list_|backup_|restore_|broadcast_|stats_|back_|remove_failed_|remove_restricted_|delete_|confirm_post_).*'))
 async def cb_handler(client: Client, query: CallbackQuery):
     try:
         data = query.data
@@ -39,11 +74,6 @@ async def cb_handler(client: Client, query: CallbackQuery):
         if any(data.startswith(prefix) for prefix in ADMIN_PREFIXES):
             return
         
-        # Delete post handler
-        if data.startswith("delete_"):
-            await handle_delete_post(client, query)
-            return
-            
         # Start menu
         elif data == "start":
             txt = f"> **✨👋🏻 Hey {query.from_user.mention} !!**\n\n" \
@@ -184,4 +214,3 @@ async def handle_delete_post(client: Client, query: CallbackQuery):
             f"• <b>Error:</b> {str(e)}\n"
             f"• Please try again or check logs"
         )
-      
