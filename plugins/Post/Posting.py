@@ -9,6 +9,9 @@ import asyncio
 from config import *
 from plugins.Post.admin_panel import admin_filter
 
+# Dictionary to store pending confirmations
+pending_confirmations = {}
+
 async def restore_pending_deletions(client):
     """Restore pending deletions when bot starts"""
     try:
