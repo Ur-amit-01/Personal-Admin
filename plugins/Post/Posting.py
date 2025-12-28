@@ -514,10 +514,15 @@ async def process_post_command(client, message, post_content, group, delete_afte
 
 @Client.on_message(filters.command(["fpost", "fpost0", "fpost1", "fpost2", "fpost3"]) & filters.private & admin_filter)
 async def forward_post(client, message: Message):
+    """Handle /fpost command with confirmation"""
     try:
         await message.react(emoji=random.choice(REACTIONS), big=True)
     except:
         pass
+    
+    if not await db.is_admin(message.from_user.id):
+        await message.reply("**❌ You are not authorized to use this command!**")
+        return
     
     if not message.reply_to_message:
         await message.reply("**Reply to a message to forward it.**")
@@ -549,6 +554,72 @@ async def forward_post(client, message: Message):
         await message.reply(f"**No channels connected in group {group} yet.**")
         return
 
+    # Create confirmation message
+    channels_count = len(channels)
+    time_str = format_time(delete_after) if delete_after else "No auto-delete"
+    
+    confirmation_text = (
+        f"<blockquote>⚠️ <b>FORWARDING CONFIRMATION</b></blockquote>\n\n"
+        f"• <b>Command:</b> /{cmd}\n"
+        f"• <b>Group:</b> {group}\n"
+        f"• <b>Channels:</b> {channels_count} channels\n"
+        f"• <b>Auto-delete:</b> {time_str}\n\n"
+        f"<i>Are you sure you want to forward this message to {channels_count} channel(s)?</i>"
+    )
+    
+    # Create confirmation buttons
+    buttons = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("✅ Yes, Forward It", 
+                               callback_data=f"confirm_post_yes_fpost_{message.from_user.id}"),
+            InlineKeyboardButton("❌ No, Cancel", 
+                               callback_data=f"confirm_post_no_fpost_{message.from_user.id}")
+        ]
+    ])
+    
+    # Send confirmation message
+    confirmation_msg = await message.reply(
+        confirmation_text,
+        reply_markup=buttons,
+        reply_to_message_id=post_content.id
+    )
+    
+    # Store the confirmation data
+    pending_confirmations[confirmation_msg.id] = {
+        "message": message,
+        "post_content": post_content,
+        "group": group,
+        "delete_after": delete_after,
+        "time_input": time_input,
+        "user_id": message.from_user.id
+    }
+    
+    # Set a timeout to clean up pending confirmation (5 minutes)
+    async def clean_pending_confirmation():
+        await asyncio.sleep(300)  # 5 minutes
+        if confirmation_msg.id in pending_confirmations:
+            try:
+                await confirmation_msg.edit_text(
+                    "❌ **Confirmation expired.**\n\n"
+                    "Please send the command again if you still want to forward."
+                )
+                pending_confirmations.pop(confirmation_msg.id, None)
+            except:
+                pass
+    
+    asyncio.create_task(clean_pending_confirmation())
+
+async def process_fpost_command(client, message, post_content, group, delete_after, time_input, confirmation_msg_id):
+    """Process the fpost command after confirmation"""
+    channels = await db.get_channels_by_group(group)
+    if not channels:
+        await client.edit_message_text(
+            chat_id=message.chat.id,
+            message_id=confirmation_msg_id,
+            text=f"**No channels connected in group {group} yet.**"
+        )
+        return
+
     post_id = int(time.time())
     sent_messages = []
     success_count = 0
@@ -556,9 +627,11 @@ async def forward_post(client, message: Message):
     failed_channels = []
     restricted_channels = []  # Track restricted channels separately
 
-    processing_msg = await message.reply(
-        f"**📢 Forwarding to {total_channels} channels in group {group}...**",
-        reply_to_message_id=post_content.id
+    processing_msg = await client.edit_message_text(
+        chat_id=message.chat.id,
+        message_id=confirmation_msg_id,
+        text=f"**📢 Forwarding to {total_channels} channels in group {group}...**",
+        reply_markup=None
     )
 
     deletion_tasks = []
