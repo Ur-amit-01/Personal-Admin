@@ -28,41 +28,6 @@ ADMIN_PREFIXES = {
     "confirm_post_"  # ADD THIS LINE - for Yes/No confirmation buttons
 }
 
-# Handler for confirmation callbacks (Yes/No buttons)
-@Client.on_callback_query(filters.regex(r"^confirm_post_(yes|no)_"))
-async def handle_post_confirmation(client: Client, query: CallbackQuery):
-    """Handle confirmation for post/fpost commands"""
-    try:
-        await query.answer()
-        data = query.data.split("_")
-        action = data[2]  # yes or no
-        command_type = data[3]  # post or fpost
-        user_id = int(data[4])
-        
-        # Check if this callback is for the right user
-        if query.from_user.id != user_id:
-            await query.answer("❌ This confirmation is not for you!", show_alert=True)
-            return
-        
-        if action == "no":
-            # User clicked No, cancel the operation
-            await query.message.edit_text(
-                "❌ **Posting cancelled.**\n\n"
-                "The operation has been cancelled as requested."
-            )
-        else:
-            # User clicked Yes - this should be handled in posting.py
-            # We'll just show a message and let posting.py handle the actual posting
-            await query.message.edit_text(
-                f"✅ **Confirmation received!**\n\n"
-                f"Processing your {command_type} command..."
-            )
-            # The actual posting logic is handled in posting.py
-        
-    except Exception as e:
-        logger.error(f"Error in confirmation handler: {e}", exc_info=True)
-        await query.answer(f"Error: {str(e)}", show_alert=True)
-
 # Update the regex to exclude confirmation callbacks
 @Client.on_callback_query(filters.regex(r'^(?!admin_|promote_|demote_|list_|backup_|restore_|broadcast_|stats_|back_|remove_failed_|remove_restricted_|delete_|confirm_post_).*'))
 async def cb_handler(client: Client, query: CallbackQuery):
