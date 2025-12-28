@@ -25,6 +25,7 @@ ADMIN_PREFIXES = {
     "remove_failed_",  # Add this
     "remove_restricted_",  # Add this too if you use it
     "delete_"  # Already handled separately, but good to be explicit
+    "confirm_post_"  # ADD THIS LINE - for Yes/No confirmation buttons
 }
 
 # Add remove_failed_ and remove_restricted_ to the negative lookahead
