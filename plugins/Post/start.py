@@ -5,6 +5,7 @@ from plugins.helper.db import db
 import random
 from plugins.Post.admin_panel import admin_filter
 import time
+import asyncio  # ADD THIS IMPORT
 
 # =====================================================================================
 
@@ -121,29 +122,29 @@ Manage multiple channels with ease!
         )
     
     # Optional: Send a follow-up animated message
-    await asyncio.sleep(1)
-    welcome_followup = """
-🎉 **Getting Started Guide** 🎉
-
-Here's how to begin:
-━━━━━━━━━━━━━━━━━━━━━━
-1️⃣ **ADD CHANNELS**
-   Use `/add <channel_id>` to connect channels
-
-2️⃣ **ORGANIZE GROUPS**
-   Channels are organized in groups (0-3)
-
-3️⃣ **POST MESSAGES**
-   Use `/post` or `/fpost` to broadcast
-
-4️⃣ **MANAGE**
-   Use `/admin` for advanced controls
-
-💡 **Tip:** Reply to any message with `/post` to send it!
-"""
-    
-    # You can uncomment this if you want a follow-up message
-    # await message.reply_text(welcome_followup, disable_web_page_preview=True)
+    # Uncomment this if you want the follow-up message
+    # await asyncio.sleep(1)
+    # welcome_followup = """
+    # 🎉 **Getting Started Guide** 🎉
+    # 
+    # Here's how to begin:
+    # ━━━━━━━━━━━━━━━━━━━━━━
+    # 1️⃣ **ADD CHANNELS**
+    #    Use `/add <channel_id>` to connect channels
+    # 
+    # 2️⃣ **ORGANIZE GROUPS**
+    #    Channels are organized in groups (0-3)
+    # 
+    # 3️⃣ **POST MESSAGES**
+    #    Use `/post` or `/fpost` to broadcast
+    # 
+    # 4️⃣ **MANAGE**
+    #    Use `/admin` for advanced controls
+    # 
+    # 💡 **Tip:** Reply to any message with `/post` to send it!
+    # """
+    # 
+    # await message.reply_text(welcome_followup, disable_web_page_preview=True, parse_mode="markdown")
 
 # =====================================================================================
 
