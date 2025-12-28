@@ -488,11 +488,10 @@ async def process_post_command(client, message, post_content, group, delete_afte
         
         log_msg = (
             f"<blockquote><b>📢 #Post | @{bot_username}</b></blockquote>\n\n"
-            f"👤 <b>Posted By:</b> {message.from_user.mention}\n"
+            f"👤 <b>Posted By: {message.from_user.mention}</b>\n"
             f"📌 <b>Post ID:</b> <code>{post_id}</code>\n"
-            f"📡 <b>Sent to:</b> {success_count}/{total_channels} channels\n"
-            f"⏳ <b>Auto-delete:</b> {time_str if delete_after else 'No'}\n"
-            f"<blockquote><b> 🤖 #{bot_username}</b></blockquote>"
+            f"📡 <b>Sent to: {success_count}/{total_channels} channels</b>\n"
+            f"⏳ <b>Auto-delete: {time_str if delete_after else 'No'}</b>\n"
         )
         
         if failed_channels:
@@ -769,11 +768,10 @@ async def process_fpost_command(client, message, post_content, group, delete_aft
         
         log_msg = (
             f"<blockquote><b>📢 #Fpost | @{bot_username}</b></blockquote>\n\n"
-            f"👤 <b>Forwarded By:</b> {message.from_user.mention}\n"
+            f"👤 <b>Forwarded By: {message.from_user.mention}</b>\n"
             f"📌 <b>Post ID:</b> <code>{post_id}</code>\n"
-            f"📡 <b>Sent to:</b> {success_count}/{total_channels} channels\n"
-            f"⏳ <b>Auto-delete:</b> {time_str if delete_after else 'No'}\n"
-            f"<blockquote><b> 🤖 #{bot_username}</b></blockquote>"
+            f"📡 <b>Sent to: {success_count}/{total_channels} channels</b>\n"
+            f"⏳ <b>Auto-delete: {time_str if delete_after else 'No'}</b>\n"
         )
 
         
