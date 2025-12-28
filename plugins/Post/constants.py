@@ -5,12 +5,12 @@ MAIN_HELP_TXT = """
 
 <blockquote><u>👮 Admin Commands</u>:</blockquote>
 • /start - Start the bot
-• /channels - List all connected channels
-• /admin - Access admin controls
-• /post - Post a message to all channels (reply to a message)
-• /del_post <post_id> - Delete a specific post from all channels
-• /add - Add current channel (use in channel)
-• /rem - Remove current channel (use in channel)
+• /channels - List of all connected channels
+• /admin - Access admin panel
+• /post - Post a message to all connected channels
+• /del_post - Delete a post from all channels
+• /add - Add channel in database (use in channel)
+• /rem - Remove channel from database (use in channel)
 
 
 <blockquote><u>🔧 Advanced Features</u>:</blockquote>
@@ -29,7 +29,7 @@ MAIN_HELP_TXT = """
 POST_HELP_TXT = """
 <b>📢 Post Command Usage
 
-/post [time] - Reply to a message to broadcast it
+/post [time] - Reply to a message to Post it
 
 <blockquote><u>Time Format Examples</u>:</blockquote>
 • <code>/post 1h30m</code> - Auto-delete after 1.5 hours
@@ -46,13 +46,14 @@ POST_HELP_TXT = """
 CHANNEL_HELP_TXT = """
 <b>📋 Channel Management
 
-<blockquote><u>Add Channel</u>:</blockquote>
+<blockquote><u>Add Channel in Database</u>:</blockquote>
 1. Add bot to your channel as admin
 2. Send <code>/add</code> in the channel
+3. Channel will be added to Database
 
-<blockquote><u>Remove Channel</u>:</blockquote>
+<blockquote><u>Remove Channel from Database</u>:</blockquote>
 1. Send <code>/rem</code> in the channel
-2. Bot will be automatically removed
+2. Channel will be removed from Database
 
 <blockquote><u>Requirements</u>:</blockquote>
 • Bot needs <b>post messages</b> permission
