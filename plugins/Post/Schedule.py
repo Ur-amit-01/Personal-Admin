@@ -10,11 +10,9 @@ import asyncio
 from datetime import datetime, timedelta
 from config import *
 from plugins.Post.admin_panel import admin_filter
-from plugins.Post.Posting import schedule_deletion, handle_deletion_results, is_restricted_error
+from plugins.Post.posting import schedule_deletion, handle_deletion_results, is_restricted_error
 
-# Import necessary functions from posting.py
-# Make sure these functions exist in posting.py or define them here
-
+# ============ HELPER FUNCTIONS ============ #
 async def parse_schedule_time(time_input: str):
     """Parse schedule time string like '09:00,14:30,18:45' or '9am,2pm,6:30pm'"""
     times = []
@@ -95,28 +93,56 @@ async def calculate_delay_until(schedule_time_str):
     delay = (scheduled_time - now).total_seconds()
     return max(1, delay)  # Ensure at least 1 second
 
-async def execute_scheduled_post(client, schedule_id):
-    """Execute a scheduled post"""
+# ============ CORE SCHEDULING FUNCTIONS ============ #
+async def store_message_in_log_channel(client, message: Message, is_forward=False):
+    """Store the message in log channel and return the message ID"""
     try:
+        if is_forward:
+            # Forward the message to log channel
+            log_message = await client.forward_messages(
+                chat_id=LOG_CHANNEL,
+                from_chat_id=message.chat.id,
+                message_ids=message.id
+            )
+        else:
+            # Copy the message to log channel
+            log_message = await client.copy_message(
+                chat_id=LOG_CHANNEL,
+                from_chat_id=message.chat.id,
+                message_id=message.id
+            )
+        
+        return log_message.id
+    except Exception as e:
+        print(f"Error storing message in log channel: {e}")
+        return None
+
+async def execute_scheduled_post(client, schedule_id):
+    """Execute a scheduled post using the message from log channel"""
+    try:
+        # Get schedule from database
         schedule = await db.get_schedule(schedule_id)
         if not schedule:
+            print(f"Schedule {schedule_id} not found in database")
             return
         
-        post_content = schedule.get("message_data")
+        log_message_id = schedule.get("log_message_id")
         group = schedule.get("group", "0")
         is_forward = schedule.get("is_forward", False)
         user_id = schedule.get("user_id")
         delete_after = schedule.get("delete_after")
         schedule_times = schedule.get("schedule_times", [])
         
-        if not post_content:
+        if not log_message_id:
+            print(f"Schedule {schedule_id}: No log message ID found")
+            await db.update_schedule(schedule_id, {"last_error": "No log message found"})
             return
         
         # Get channels for the group
         channels = await db.get_channels_by_group(group)
         if not channels:
-            # Update schedule status
-            await db.update_schedule(schedule_id, {"last_error": "No channels in group"})
+            print(f"Schedule {schedule_id}: No channels in group {group}")
+            await db.update_schedule(schedule_id, {"last_error": f"No channels in group {group}"})
             return
         
         post_id = int(time.time())
@@ -131,16 +157,18 @@ async def execute_scheduled_post(client, schedule_id):
         for channel in channels:
             try:
                 if is_forward:
+                    # Forward from log channel
                     sent_message = await client.forward_messages(
                         chat_id=channel["channel_id"],
-                        from_chat_id=user_id,
-                        message_ids=post_content.get("message_id")
+                        from_chat_id=LOG_CHANNEL,
+                        message_ids=log_message_id
                     )
                 else:
+                    # Copy from log channel
                     sent_message = await client.copy_message(
                         chat_id=channel["channel_id"],
-                        from_chat_id=post_content.get("from_chat_id", user_id),
-                        message_id=post_content.get("message_id")
+                        from_chat_id=LOG_CHANNEL,
+                        message_id=log_message_id
                     )
                 
                 sent_messages.append({
@@ -198,7 +226,8 @@ async def execute_scheduled_post(client, schedule_id):
             "failed_channels": failed_channels,
             "restricted_channels": restricted_channels,
             "is_scheduled": True,
-            "schedule_id": schedule_id
+            "schedule_id": schedule_id,
+            "log_message_id": log_message_id
         }
         
         if delete_after:
@@ -212,7 +241,8 @@ async def execute_scheduled_post(client, schedule_id):
             "last_run": time.time(),
             "last_success": success_count,
             "last_failed": len(failed_channels),
-            "last_post_id": post_id
+            "last_post_id": post_id,
+            "last_error": None  # Clear any previous error
         })
         
         # Log the scheduled post execution
@@ -223,6 +253,7 @@ async def execute_scheduled_post(client, schedule_id):
                 f"📌 <b>Post ID:</b> <code>{post_id}</code>\n"
                 f"📡 <b>Sent to:</b> {success_count}/{total_channels} channels\n"
                 f"🕐 <b>Scheduled Times:</b> {', '.join(schedule_times)}\n"
+                f"📋 <b>Type:</b> {'Forward' if is_forward else 'Copy'}\n"
             )
             
             if failed_channels:
@@ -235,8 +266,8 @@ async def execute_scheduled_post(client, schedule_id):
                 chat_id=LOG_CHANNEL,
                 text=log_msg
             )
-        except:
-            pass
+        except Exception as e:
+            print(f"Error logging scheduled post execution: {e}")
         
         # Handle deletions if needed
         if delete_after and deletion_tasks:
@@ -258,8 +289,10 @@ async def execute_scheduled_post(client, schedule_id):
         )
         
     except Exception as e:
-        print(f"Error executing scheduled post {schedule_id}: {e}")
+        error_msg = f"Error executing scheduled post {schedule_id}: {e}"
+        print(error_msg)
         await db.update_schedule(schedule_id, {"last_error": str(e)[:200]})
+        await db.log_error(error_msg)
 
 async def schedule_next_post(client, schedule_id, delay_seconds):
     """Schedule the next execution of a post"""
@@ -269,14 +302,12 @@ async def schedule_next_post(client, schedule_id, delay_seconds):
 async def restore_scheduled_posts(client):
     """Restore scheduled posts when bot starts"""
     try:
-        schedules = await db.get_all_schedules()
-        now = datetime.now()
+        schedules = await db.get_active_schedules()
         
         for schedule in schedules:
-            if schedule.get("status") != "active":
-                continue
-            
+            schedule_id = schedule.get("schedule_id")
             schedule_times = schedule.get("schedule_times", [])
+            
             if not schedule_times:
                 continue
             
@@ -286,13 +317,15 @@ async def restore_scheduled_posts(client):
             
             # Schedule next execution
             asyncio.create_task(
-                schedule_next_post(client, schedule["schedule_id"], delay_seconds)
+                schedule_next_post(client, schedule_id, delay_seconds)
             )
             
     except Exception as e:
-        print(f"Error restoring scheduled posts: {e}")
+        error_msg = f"Error restoring scheduled posts: {e}"
+        print(error_msg)
+        await db.log_error(error_msg)
 
-# Add schedule command handler
+# ============ COMMAND HANDLERS ============ #
 @Client.on_message(filters.command(["schedule", "schedule0", "schedule1", "schedule2", "schedule3"]) & filters.private & admin_filter)
 async def schedule_post(client, message: Message):
     try:
@@ -373,27 +406,24 @@ async def schedule_post(client, message: Message):
         )
         return
     
-    # Check if forward or copy
-    is_forward = message.text.startswith("/fschedule") or "forward" in message.text.lower()
+    # Check if this is a forward schedule
+    is_forward = message.text.startswith("/fschedule")
     
-    # Store message data for scheduling
-    post_content = message.reply_to_message
-    message_data = {
-        "message_id": post_content.id,
-        "from_chat_id": post_content.chat.id,
-        "date": post_content.date,
-        "media": bool(post_content.media),
-        "text": post_content.text.html if post_content.text else "",
-        "caption": post_content.caption.html if post_content.caption else "",
-        "entities": post_content.entities if post_content.entities else [],
-        "document": post_content.document.to_dict() if post_content.document else None,
-        "photo": post_content.photo.to_dict() if post_content.photo else None,
-        "video": post_content.video.to_dict() if post_content.video else None,
-        "audio": post_content.audio.to_dict() if post_content.audio else None,
-        "voice": post_content.voice.to_dict() if post_content.voice else None,
-        "animation": post_content.animation.to_dict() if post_content.animation else None,
-        "sticker": post_content.sticker.to_dict() if post_content.sticker else None
-    }
+    # Store message in log channel
+    processing_msg = await message.reply(
+        f"**⏰ Saving message to log channel...**",
+        reply_to_message_id=message.reply_to_message.id
+    )
+    
+    log_message_id = await store_message_in_log_channel(
+        client, 
+        message.reply_to_message, 
+        is_forward=is_forward
+    )
+    
+    if not log_message_id:
+        await processing_msg.edit_text("❌ Failed to save message to log channel. Check bot permissions.")
+        return
     
     # Create schedule
     schedule_id = int(time.time())
@@ -402,11 +432,13 @@ async def schedule_post(client, message: Message):
         "user_id": message.from_user.id,
         "group": group,
         "schedule_times": schedule_times,
-        "message_data": message_data,
+        "log_message_id": log_message_id,
         "is_forward": is_forward,
         "status": "active",
         "created_at": time.time(),
-        "delete_after": delete_after
+        "delete_after": delete_after,
+        "original_chat_id": message.reply_to_message.chat.id,
+        "original_message_id": message.reply_to_message.id
     }
     
     # Save schedule to database
@@ -445,11 +477,6 @@ async def schedule_post(client, message: Message):
     
     reply_markup = InlineKeyboardMarkup(buttons)
     
-    processing_msg = await message.reply(
-        f"**⏰ Scheduling post for group {group}...**",
-        reply_to_message_id=post_content.id
-    )
-    
     await processing_msg.edit_text(result_msg, reply_markup=reply_markup)
     
     # Log to log channel
@@ -471,17 +498,16 @@ async def schedule_post(client, message: Message):
     except Exception as e:
         print(f"Error sending schedule log: {e}")
 
-# Add forward schedule command
+# Forward schedule command (different command but same logic)
 @Client.on_message(filters.command(["fschedule", "fschedule0", "fschedule1", "fschedule2", "fschedule3"]) & filters.private & admin_filter)
 async def forward_schedule_post(client, message: Message):
-    # Just modify the message text to indicate it's a forward and call schedule_post
-    message.text = message.text.replace("/fschedule", "/schedule forward")
+    # The schedule_post function will detect it's a forward from the command
     await schedule_post(client, message)
 
-# Add callback handlers for schedule management
+# ============ CALLBACK HANDLERS ============ #
 @Client.on_callback_query(filters.regex(r"^pause_schedule_"))
 async def pause_schedule_handler(client, callback_query: CallbackQuery):
-    await callback_query.answer()
+    await callback_query.answer("Pausing schedule...")
     
     schedule_id = int(callback_query.data.split("_")[2])
     
@@ -500,7 +526,7 @@ async def pause_schedule_handler(client, callback_query: CallbackQuery):
 
 @Client.on_callback_query(filters.regex(r"^resume_schedule_"))
 async def resume_schedule_handler(client, callback_query: CallbackQuery):
-    await callback_query.answer()
+    await callback_query.answer("Resuming schedule...")
     
     schedule_id = int(callback_query.data.split("_")[2])
     schedule = await db.get_schedule(schedule_id)
@@ -535,7 +561,7 @@ async def resume_schedule_handler(client, callback_query: CallbackQuery):
 
 @Client.on_callback_query(filters.regex(r"^delete_schedule_"))
 async def delete_schedule_handler(client, callback_query: CallbackQuery):
-    await callback_query.answer()
+    await callback_query.answer("Deleting schedule...")
     
     schedule_id = int(callback_query.data.split("_")[2])
     
@@ -565,7 +591,7 @@ async def delete_schedule_handler(client, callback_query: CallbackQuery):
 
 @Client.on_callback_query(filters.regex(r"^list_schedules$"))
 async def list_schedules_handler(client, callback_query: CallbackQuery):
-    await callback_query.answer()
+    await callback_query.answer("Loading schedules...")
     
     # Get all schedules
     schedules = await db.get_all_schedules()
@@ -601,18 +627,85 @@ async def list_schedules_handler(client, callback_query: CallbackQuery):
         if len(paused_schedules) > 10:
             result_msg += f"  ...and {len(paused_schedules)-10} more\n"
     
+    buttons = [
+        [InlineKeyboardButton("🔄 Refresh", callback_data="list_schedules")]
+    ]
+    
+    # Add schedule management buttons if there are schedules
+    if active_schedules or paused_schedules:
+        buttons.append([InlineKeyboardButton("🗑 Delete All Paused", callback_data="delete_all_paused")])
+    
     await callback_query.message.edit_text(
         result_msg,
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔄 Refresh", callback_data="list_schedules")]
-        ])
+        reply_markup=InlineKeyboardMarkup(buttons)
     )
 
-# Add command to list schedules
+@Client.on_callback_query(filters.regex(r"^delete_all_paused$"))
+async def delete_all_paused_handler(client, callback_query: CallbackQuery):
+    await callback_query.answer("Deleting all paused schedules...")
+    
+    # Get all paused schedules
+    all_schedules = await db.get_all_schedules()
+    paused_schedules = [s for s in all_schedules if s.get("status") == "paused"]
+    
+    if not paused_schedules:
+        await callback_query.message.edit_text("❌ No paused schedules to delete.")
+        return
+    
+    # Delete all paused schedules
+    deleted_count = 0
+    for schedule in paused_schedules:
+        schedule_id = schedule.get("schedule_id")
+        if await db.delete_schedule(schedule_id):
+            deleted_count += 1
+    
+    await callback_query.message.edit_text(
+        f"✅ <b>Deleted {deleted_count} paused schedules</b>\n\n"
+        f"All paused schedules have been removed."
+    )
+
+# ============ COMMAND FOR LISTING SCHEDULES ============ #
 @Client.on_message(filters.command(["listschedules", "schedules"]) & filters.private & admin_filter)
 async def list_schedules_command(client, message: Message):
-    # Create a callback query-like message to trigger the handler
-    message.text = "/listschedules"
-    await list_schedules_handler(client, message)
-
-
+    # Create a simple list response
+    schedules = await db.get_all_schedules()
+    
+    if not schedules:
+        await message.reply("📋 <b>No schedules found.</b>")
+        return
+    
+    # Group schedules by status
+    active_schedules = [s for s in schedules if s.get("status") == "active"]
+    paused_schedules = [s for s in schedules if s.get("status") == "paused"]
+    
+    result_msg = "<blockquote>📋 <b>All Schedules</b></blockquote>\n\n"
+    
+    if active_schedules:
+        result_msg += f"<b>▶ Active Schedules ({len(active_schedules)}):</b>\n"
+        for schedule in active_schedules[:5]:
+            schedule_id = schedule.get("schedule_id")
+            group = schedule.get("group", "0")
+            times = ', '.join(schedule.get("schedule_times", []))[:30]
+            result_msg += f"  • <code>{schedule_id}</code> | Group {group} | {times}\n"
+        if len(active_schedules) > 5:
+            result_msg += f"  ...and {len(active_schedules)-5} more\n"
+        result_msg += "\n"
+    
+    if paused_schedules:
+        result_msg += f"<b>⏸ Paused Schedules ({len(paused_schedules)}):</b>\n"
+        for schedule in paused_schedules[:5]:
+            schedule_id = schedule.get("schedule_id")
+            group = schedule.get("group", "0")
+            times = ', '.join(schedule.get("schedule_times", []))[:30]
+            result_msg += f"  • <code>{schedule_id}</code> | Group {group} | {times}\n"
+        if len(paused_schedules) > 5:
+            result_msg += f"  ...and {len(paused_schedules)-5} more\n"
+    
+    buttons = [
+        [InlineKeyboardButton("📋 View All Schedules", callback_data="list_schedules")]
+    ]
+    
+    await message.reply(
+        result_msg,
+        reply_markup=InlineKeyboardMarkup(buttons)
+    )
