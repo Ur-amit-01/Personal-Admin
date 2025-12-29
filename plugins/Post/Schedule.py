@@ -321,39 +321,57 @@ async def schedule_post(client, message: Message):
             "**Format:** `/schedule 09:00,14:30,18:45`\n"
             "**Or:** `/schedule 9am,2pm,6:30pm`\n\n"
             "**Example:** `/schedule1 09:00,21:00`\n"
-            "**Example:** `/schedule2 8am,12pm,4pm,8pm`"
+            "**Example:** `/schedule2 8am,12pm,4pm,8pm`\n\n"
+            "**With auto-delete:** `/schedule 9am,6pm 2h`"
         )
         return
     
-    time_input = ' '.join(message.command[1:])
+    # Parse the command arguments
+    args = message.text.split()
+    
+    # The first argument after command is schedule times
+    time_input = args[1]  # e.g., "5:54pm" or "09:00,14:30"
+    
+    # Check for auto-delete time (optional, comes after schedule times)
+    delete_after = None
+    if len(args) > 2:
+        # Join remaining arguments for auto-delete time (could be multiple words like "2 hours")
+        delete_input = ' '.join(args[2:])
+        try:
+            delete_after = parse_time(delete_input)
+            if delete_after <= 0:
+                await message.reply("❌ Auto-delete time must be greater than 0")
+                return
+        except ValueError as e:
+            await message.reply(
+                f"**❌ Invalid auto-delete time format!**\n\n"
+                f"Error: {str(e)}\n\n"
+                "**Valid auto-delete formats:**\n"
+                "• `2h` (2 hours)\n"
+                "• `30min` (30 minutes)\n"
+                "• `1h 30min` (1 hour 30 minutes)\n"
+                "• `2 days` (2 days)\n\n"
+                "**Full example:** `/schedule 9am,6pm 2h`"
+            )
+            return
     
     # Parse schedule times
     try:
         schedule_times = await parse_schedule_time(time_input)
     except ValueError as e:
         await message.reply(
-            f"**❌ Invalid time format!**\n\n"
+            f"**❌ Invalid schedule time format!**\n\n"
             f"Error: {str(e)}\n\n"
-            "**Valid formats:**\n"
+            "**Valid schedule formats:**\n"
             "• `09:00,14:30,18:45` (24-hour)\n"
             "• `9am,2pm,6:30pm` (12-hour)\n"
-            "• `08:00,12:00,16:00,20:00`\n\n"
-            "**Example:** `/schedule 9am,6pm`"
+            "• `08:00,12:00,16:00,20:00`\n"
+            "• `5:54pm` (single time)\n\n"
+            "**With auto-delete:**\n"
+            "• `/schedule 9am,6pm 2h`\n"
+            "• `/schedule 09:00,21:00 1h 30min`"
         )
         return
-    
-    # Parse auto-delete time (optional)
-    delete_after = None
-    if len(message.command) > 2:
-        try:
-            delete_input = ' '.join(message.command[2:])
-            delete_after = parse_time(delete_input)
-            if delete_after <= 0:
-                await message.reply("❌ Auto-delete time must be greater than 0")
-                return
-        except ValueError as e:
-            await message.reply(f"❌ Invalid auto-delete time: {str(e)}")
-            return
     
     # Check if forward or copy
     is_forward = message.text.startswith("/fschedule") or "forward" in message.text.lower()
@@ -366,7 +384,15 @@ async def schedule_post(client, message: Message):
         "date": post_content.date,
         "media": bool(post_content.media),
         "text": post_content.text.html if post_content.text else "",
-        "caption": post_content.caption.html if post_content.caption else ""
+        "caption": post_content.caption.html if post_content.caption else "",
+        "entities": post_content.entities if post_content.entities else [],
+        "document": post_content.document.to_dict() if post_content.document else None,
+        "photo": post_content.photo.to_dict() if post_content.photo else None,
+        "video": post_content.video.to_dict() if post_content.video else None,
+        "audio": post_content.audio.to_dict() if post_content.audio else None,
+        "voice": post_content.voice.to_dict() if post_content.voice else None,
+        "animation": post_content.animation.to_dict() if post_content.animation else None,
+        "sticker": post_content.sticker.to_dict() if post_content.sticker else None
     }
     
     # Create schedule
