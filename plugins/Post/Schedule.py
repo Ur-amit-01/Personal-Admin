@@ -10,7 +10,7 @@ import asyncio
 from datetime import datetime, timedelta
 from config import *
 from plugins.Post.admin_panel import admin_filter
-from plugins.Post.posting import schedule_deletion, handle_deletion_results, is_restricted_error
+from plugins.Post.Posting import schedule_deletion, handle_deletion_results, is_restricted_error
 
 # ============ HELPER FUNCTIONS ============ #
 async def parse_schedule_time(time_input: str):
