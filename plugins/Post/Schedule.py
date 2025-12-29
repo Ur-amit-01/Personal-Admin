@@ -10,7 +10,7 @@ import asyncio
 from datetime import datetime, timedelta
 from config import *
 from plugins.Post.admin_panel import admin_filter
-from plugins.Post.Posting import schedule_deletion, handle_deletion_results, is_restricted_error
+from plugins.Post.posting import schedule_deletion, handle_deletion_results, is_restricted_error
 
 # ============ HELPER FUNCTIONS ============ #
 async def parse_schedule_time(time_input: str):
@@ -93,10 +93,18 @@ async def calculate_delay_until(schedule_time_str):
     delay = (scheduled_time - now).total_seconds()
     return max(1, delay)  # Ensure at least 1 second
 
+# ============ DEBUG PRINT FUNCTION ============ #
+def debug_print(msg):
+    """Debug print with timestamp"""
+    timestamp = datetime.now().strftime("%H:%M:%S")
+    print(f"[{timestamp}] [SCHEDULE] {msg}")
+
 # ============ CORE SCHEDULING FUNCTIONS ============ #
 async def store_message_in_log_channel(client, message: Message, is_forward=False):
     """Store the message in log channel and return the message ID"""
     try:
+        debug_print(f"Storing message in log channel. Is forward: {is_forward}")
+        
         if is_forward:
             # Forward the message to log channel
             log_message = await client.forward_messages(
@@ -112,18 +120,21 @@ async def store_message_in_log_channel(client, message: Message, is_forward=Fals
                 message_id=message.id
             )
         
+        debug_print(f"Message stored in log channel with ID: {log_message.id}")
         return log_message.id
     except Exception as e:
-        print(f"Error storing message in log channel: {e}")
+        debug_print(f"Error storing message in log channel: {e}")
         return None
 
 async def execute_scheduled_post(client, schedule_id):
     """Execute a scheduled post using the message from log channel"""
     try:
+        debug_print(f"Starting execution of schedule {schedule_id}")
+        
         # Get schedule from database
         schedule = await db.get_schedule(schedule_id)
         if not schedule:
-            print(f"Schedule {schedule_id} not found in database")
+            debug_print(f"Schedule {schedule_id} not found in database")
             return
         
         log_message_id = schedule.get("log_message_id")
@@ -134,16 +145,20 @@ async def execute_scheduled_post(client, schedule_id):
         schedule_times = schedule.get("schedule_times", [])
         
         if not log_message_id:
-            print(f"Schedule {schedule_id}: No log message ID found")
+            debug_print(f"Schedule {schedule_id}: No log message ID found")
             await db.update_schedule(schedule_id, {"last_error": "No log message found"})
             return
+        
+        debug_print(f"Schedule {schedule_id}: Got log message ID {log_message_id} for group {group}")
         
         # Get channels for the group
         channels = await db.get_channels_by_group(group)
         if not channels:
-            print(f"Schedule {schedule_id}: No channels in group {group}")
+            debug_print(f"Schedule {schedule_id}: No channels in group {group}")
             await db.update_schedule(schedule_id, {"last_error": f"No channels in group {group}"})
             return
+        
+        debug_print(f"Schedule {schedule_id}: Found {len(channels)} channels in group {group}")
         
         post_id = int(time.time())
         sent_messages = []
@@ -157,6 +172,7 @@ async def execute_scheduled_post(client, schedule_id):
         for channel in channels:
             try:
                 if is_forward:
+                    debug_print(f"Forwarding to channel {channel.get('name', channel['channel_id'])}")
                     # Forward from log channel
                     sent_message = await client.forward_messages(
                         chat_id=channel["channel_id"],
@@ -164,6 +180,7 @@ async def execute_scheduled_post(client, schedule_id):
                         message_ids=log_message_id
                     )
                 else:
+                    debug_print(f"Copying to channel {channel.get('name', channel['channel_id'])}")
                     # Copy from log channel
                     sent_message = await client.copy_message(
                         chat_id=channel["channel_id"],
@@ -214,6 +231,9 @@ async def execute_scheduled_post(client, schedule_id):
                     })
                 
                 failed_channels.append(channel_data)
+                debug_print(f"Failed to send to {channel_name}: {error_msg[:50]}")
+        
+        debug_print(f"Schedule {schedule_id}: Successfully sent to {success_count}/{total_channels} channels")
         
         # Save post data
         post_data = {
@@ -266,8 +286,9 @@ async def execute_scheduled_post(client, schedule_id):
                 chat_id=LOG_CHANNEL,
                 text=log_msg
             )
+            debug_print(f"Schedule {schedule_id}: Execution logged in log channel")
         except Exception as e:
-            print(f"Error logging scheduled post execution: {e}")
+            debug_print(f"Error logging scheduled post execution: {e}")
         
         # Handle deletions if needed
         if delete_after and deletion_tasks:
@@ -283,6 +304,9 @@ async def execute_scheduled_post(client, schedule_id):
         # Schedule next execution
         next_time = await get_next_run_time(schedule_times)
         delay_seconds = await calculate_delay_until(next_time)
+        next_run_str = (datetime.now() + timedelta(seconds=delay_seconds)).strftime("%Y-%m-%d %H:%M")
+        
+        debug_print(f"Schedule {schedule_id}: Next execution scheduled for {next_run_str} (in {delay_seconds} seconds)")
         
         asyncio.create_task(
             schedule_next_post(client, schedule_id, delay_seconds)
@@ -290,39 +314,52 @@ async def execute_scheduled_post(client, schedule_id):
         
     except Exception as e:
         error_msg = f"Error executing scheduled post {schedule_id}: {e}"
-        print(error_msg)
+        debug_print(error_msg)
         await db.update_schedule(schedule_id, {"last_error": str(e)[:200]})
         await db.log_error(error_msg)
 
 async def schedule_next_post(client, schedule_id, delay_seconds):
     """Schedule the next execution of a post"""
+    debug_print(f"Schedule {schedule_id}: Waiting {delay_seconds} seconds for next execution")
     await asyncio.sleep(delay_seconds)
+    debug_print(f"Schedule {schedule_id}: Time reached, executing now")
     await execute_scheduled_post(client, schedule_id)
 
 async def restore_scheduled_posts(client):
     """Restore scheduled posts when bot starts"""
     try:
-        schedules = await db.get_active_schedules()
+        debug_print("Restoring scheduled posts...")
+        schedules = await db.get_all_schedules()
+        debug_print(f"Found {len(schedules)} total schedules")
         
-        for schedule in schedules:
+        active_schedules = await db.get_active_schedules()
+        debug_print(f"Found {len(active_schedules)} active schedules")
+        
+        for schedule in active_schedules:
             schedule_id = schedule.get("schedule_id")
             schedule_times = schedule.get("schedule_times", [])
             
             if not schedule_times:
+                debug_print(f"Schedule {schedule_id}: No schedule times, skipping")
                 continue
             
             # Calculate delay until next scheduled time
             next_time = await get_next_run_time(schedule_times)
             delay_seconds = await calculate_delay_until(next_time)
+            next_run_str = (datetime.now() + timedelta(seconds=delay_seconds)).strftime("%Y-%m-%d %H:%M")
+            
+            debug_print(f"Schedule {schedule_id}: Next execution at {next_run_str} (in {delay_seconds} seconds)")
             
             # Schedule next execution
             asyncio.create_task(
                 schedule_next_post(client, schedule_id, delay_seconds)
             )
             
+        debug_print("All active schedules restored")
+            
     except Exception as e:
         error_msg = f"Error restoring scheduled posts: {e}"
-        print(error_msg)
+        debug_print(error_msg)
         await db.log_error(error_msg)
 
 # ============ COMMAND HANDLERS ============ #
@@ -408,6 +445,7 @@ async def schedule_post(client, message: Message):
     
     # Check if this is a forward schedule
     is_forward = message.text.startswith("/fschedule")
+    debug_print(f"Creating {'forward' if is_forward else 'copy'} schedule for group {group}")
     
     # Store message in log channel
     processing_msg = await message.reply(
@@ -450,6 +488,7 @@ async def schedule_post(client, message: Message):
     next_run_str = (datetime.now() + timedelta(seconds=delay_seconds)).strftime("%Y-%m-%d %H:%M")
     
     # Schedule the first post
+    debug_print(f"Scheduling first post for schedule {schedule_id} in {delay_seconds} seconds")
     asyncio.create_task(
         schedule_next_post(client, schedule_id, delay_seconds)
     )
@@ -496,13 +535,31 @@ async def schedule_post(client, message: Message):
             text=log_msg
         )
     except Exception as e:
-        print(f"Error sending schedule log: {e}")
+        debug_print(f"Error sending schedule log: {e}")
+    
+    debug_print(f"Schedule {schedule_id} created successfully")
 
 # Forward schedule command (different command but same logic)
 @Client.on_message(filters.command(["fschedule", "fschedule0", "fschedule1", "fschedule2", "fschedule3"]) & filters.private & admin_filter)
 async def forward_schedule_post(client, message: Message):
     # The schedule_post function will detect it's a forward from the command
     await schedule_post(client, message)
+
+# ============ IMPORTANT: Add to bot startup ============ #
+# In your main bot.py file, add:
+# from plugins.Post.schedule import restore_scheduled_posts
+# 
+# Then in your on_startup function:
+# async def on_startup(client):
+#     print("Bot starting up...")
+#     
+#     # Restore pending deletions
+#     await posting.restore_pending_deletions(client)
+#     
+#     # Restore scheduled posts
+#     await restore_scheduled_posts(client)
+#     
+#     print("Bot startup complete")
 
 # ============ CALLBACK HANDLERS ============ #
 @Client.on_callback_query(filters.regex(r"^pause_schedule_"))
