@@ -1,6 +1,6 @@
 import motor.motor_asyncio
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from config import *
 from typing import List, Dict, Optional, Union
 import math
@@ -21,6 +21,7 @@ class Database:
         self.posts = self.db.posts
         self.settings = self.db.settings
         self.logs = self.db.logs
+        self.schedules = self.db.schedules  # New collection for schedules
 
     # ============ Logging System ============ #
     async def log_error(self, error_msg: str):
@@ -122,6 +123,143 @@ class Database:
             {"$set": {"last_active": datetime.now()}}
         )
 
+    # ============ Schedule System ============ #
+    async def save_schedule(self, schedule_data: Dict):
+        """Save a new schedule to database"""
+        try:
+            schedule_data["created_at"] = datetime.now()
+            schedule_data["updated_at"] = datetime.now()
+            
+            # Set default status if not provided
+            if "status" not in schedule_data:
+                schedule_data["status"] = "active"
+            
+            await self.schedules.update_one(
+                {"schedule_id": schedule_data["schedule_id"]},
+                {"$set": schedule_data},
+                upsert=True
+            )
+            
+            await self.log_action("schedule_created", schedule_data.get("user_id"), {
+                "schedule_id": schedule_data["schedule_id"],
+                "group": schedule_data.get("group", "0"),
+                "times": schedule_data.get("schedule_times", []),
+                "delete_after": schedule_data.get("delete_after")
+            })
+            
+            return True
+        except Exception as e:
+            await self.log_error(f"Error saving schedule: {e}")
+            return False
+
+    async def get_schedule(self, schedule_id: int) -> Optional[Dict]:
+        """Get a schedule by ID"""
+        try:
+            schedule = await self.schedules.find_one({"schedule_id": schedule_id})
+            return schedule
+        except Exception as e:
+            await self.log_error(f"Error getting schedule: {e}")
+            return None
+
+    async def get_all_schedules(self) -> List[Dict]:
+        """Get all schedules"""
+        try:
+            return [schedule async for schedule in self.schedules.find({})]
+        except Exception as e:
+            await self.log_error(f"Error getting all schedules: {e}")
+            return []
+
+    async def get_active_schedules(self) -> List[Dict]:
+        """Get all active schedules"""
+        try:
+            return [schedule async for schedule in self.schedules.find({"status": "active"})]
+        except Exception as e:
+            await self.log_error(f"Error getting active schedules: {e}")
+            return []
+
+    async def get_schedules_by_user(self, user_id: int) -> List[Dict]:
+        """Get all schedules created by a specific user"""
+        try:
+            return [schedule async for schedule in self.schedules.find({"user_id": user_id})]
+        except Exception as e:
+            await self.log_error(f"Error getting user schedules: {e}")
+            return []
+
+    async def get_schedules_by_group(self, group: str = "0") -> List[Dict]:
+        """Get all schedules for a specific group"""
+        try:
+            return [schedule async for schedule in self.schedules.find({"group": group})]
+        except Exception as e:
+            await self.log_error(f"Error getting group schedules: {e}")
+            return []
+
+    async def update_schedule(self, schedule_id: int, update_data: Dict) -> bool:
+        """Update a schedule with new data"""
+        try:
+            update_data["updated_at"] = datetime.now()
+            
+            result = await self.schedules.update_one(
+                {"schedule_id": schedule_id},
+                {"$set": update_data}
+            )
+            
+            if result.modified_count > 0:
+                await self.log_action("schedule_updated", 0, {
+                    "schedule_id": schedule_id,
+                    "updated_fields": list(update_data.keys())
+                })
+            
+            return result.modified_count > 0
+        except Exception as e:
+            await self.log_error(f"Error updating schedule: {e}")
+            return False
+
+    async def delete_schedule(self, schedule_id: int) -> bool:
+        """Delete a schedule"""
+        try:
+            result = await self.schedules.delete_one({"schedule_id": schedule_id})
+            
+            if result.deleted_count > 0:
+                await self.log_action("schedule_deleted", 0, {
+                    "schedule_id": schedule_id
+                })
+            
+            return result.deleted_count > 0
+        except Exception as e:
+            await self.log_error(f"Error deleting schedule: {e}")
+            return False
+
+    async def pause_schedule(self, schedule_id: int) -> bool:
+        """Pause a schedule"""
+        return await self.update_schedule(schedule_id, {"status": "paused"})
+
+    async def resume_schedule(self, schedule_id: int) -> bool:
+        """Resume a paused schedule"""
+        return await self.update_schedule(schedule_id, {"status": "active"})
+
+    async def get_schedule_stats(self) -> Dict:
+        """Get statistics about schedules"""
+        try:
+            total = await self.schedules.count_documents({})
+            active = await self.schedules.count_documents({"status": "active"})
+            paused = await self.schedules.count_documents({"status": "paused"})
+            
+            # Get schedules by group
+            groups = {}
+            for group in ["0", "1", "2", "3"]:
+                count = await self.schedules.count_documents({"group": group})
+                groups[group] = count
+            
+            return {
+                "total_schedules": total,
+                "active_schedules": active,
+                "paused_schedules": paused,
+                "by_group": groups
+            }
+        except Exception as e:
+            await self.log_error(f"Error getting schedule stats: {e}")
+            return {}
+
     # ============ Post System ============ #
     async def save_post(self, post_data):
         post_data["timestamp"] = datetime.now()
@@ -131,11 +269,20 @@ class Database:
                 {"$set": post_data},
                 upsert=True
             )
-            await self.log_action("post_saved", post_data.get("user_id"), {
+            
+            # Log action
+            action_type = "post_saved"
+            if post_data.get("is_scheduled"):
+                action_type = "scheduled_post_saved"
+            
+            await self.log_action(action_type, post_data.get("user_id"), {
                 "post_id": post_data["post_id"],
                 "channels_count": len(post_data.get("channels", [])),
-                "group": post_data.get("group", "0")
+                "group": post_data.get("group", "0"),
+                "is_scheduled": post_data.get("is_scheduled", False),
+                "schedule_id": post_data.get("schedule_id")
             })
+            
             return True
         except Exception as e:
             await self.log_error(f"Error saving post: {e}")
@@ -190,6 +337,16 @@ class Database:
             return [post async for post in self.posts.find({}).skip(skip).limit(limit)]
         except Exception as e:
             await self.log_error(f"Error retrieving posts: {e}")
+            return []
+
+    async def get_scheduled_posts(self, limit: int = 0, skip: int = 0):
+        """Get posts created by schedules"""
+        try:
+            return [post async for post in self.posts.find({
+                "is_scheduled": True
+            }).skip(skip).limit(limit)]
+        except Exception as e:
+            await self.log_error(f"Error retrieving scheduled posts: {e}")
             return []
 
     # ============ Channel System with Group Support ============ #
@@ -373,6 +530,7 @@ class Database:
                 "total_channels": await self.get_total_channel_count(),
                 "total_posts": await self.posts.count_documents({}),
                 "pending_deletions": len(await self.get_pending_deletions()),
+                "schedules": await self.get_schedule_stats(),
                 "groups": {}
             }
             
@@ -409,6 +567,83 @@ class Database:
         except Exception as e:
             await self.log_error(f"Error cleaning up old posts: {e}")
             return 0
+
+    async def cleanup_old_schedules(self, days: int = 180):
+        """Clean up schedules older than specified days (if they're deleted/inactive)"""
+        try:
+            cutoff_date = datetime.now() - timedelta(days=days)
+            result = await self.schedules.delete_many({
+                "status": {"$in": ["deleted", "inactive"]},
+                "updated_at": {"$lt": cutoff_date}
+            })
+            return result.deleted_count
+        except Exception as e:
+            await self.log_error(f"Error cleaning up old schedules: {e}")
+            return 0
+
+    # ============ Backup & Restore ============ #
+    async def backup_database(self):
+        """Create a backup of the database"""
+        try:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_dir = f"backups/{timestamp}"
+            
+            if not os.path.exists("backups"):
+                os.makedirs("backups")
+            
+            if not os.path.exists(backup_dir):
+                os.makedirs(backup_dir)
+            
+            # Backup each collection
+            collections = ["user", "channels", "admins", "posts", "schedules", "settings", "logs", "formatting"]
+            
+            for collection_name in collections:
+                collection = self.db[collection_name]
+                documents = await collection.find({}).to_list(None)
+                
+                if documents:
+                    with open(f"{backup_dir}/{collection_name}.json", "w") as f:
+                        json.dump(documents, f, default=str, indent=2)
+            
+            await self.log_action("database_backup", 0, {"backup_dir": backup_dir})
+            return backup_dir
+            
+        except Exception as e:
+            await self.log_error(f"Error backing up database: {e}")
+            return None
+
+    async def restore_database(self, backup_dir: str):
+        """Restore database from backup"""
+        try:
+            if not os.path.exists(backup_dir):
+                return False
+            
+            # Restore each collection
+            collections = ["user", "channels", "admins", "posts", "schedules", "settings", "logs", "formatting"]
+            
+            for collection_name in collections:
+                file_path = f"{backup_dir}/{collection_name}.json"
+                
+                if os.path.exists(file_path):
+                    with open(file_path, "r") as f:
+                        documents = json.load(f)
+                    
+                    if documents:
+                        collection = self.db[collection_name]
+                        await collection.delete_many({})  # Clear existing data
+                        
+                        for doc in documents:
+                            # Convert string dates back to datetime
+                            if "_id" in doc and collection_name not in ["user", "admins"]:
+                                doc.pop("_id", None)
+                            await collection.insert_one(doc)
+            
+            await self.log_action("database_restore", 0, {"backup_dir": backup_dir})
+            return True
+            
+        except Exception as e:
+            await self.log_error(f"Error restoring database: {e}")
+            return False
 
 # Initialize the database
 db = Database(DB_URL, DB_NAME)
