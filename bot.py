@@ -4,6 +4,7 @@ import logging.config
 from pyrogram import Client
 from config import *
 from plugins.Post.Posting import restore_pending_deletions
+from plugins.Post.Schedule import restore_scheduled_posts
 
 logging.config.fileConfig('logging.conf')
 logging.getLogger().setLevel(logging.INFO)
@@ -29,6 +30,7 @@ class Bot(Client):
         self.username = me.username
 
         await restore_pending_deletions(self)
+        await restore_scheduled_posts(self)
 
         logging.info(f"{me.first_name} ✅✅ BOT started successfully ✅✅")
         logging.info(f"{me.first_name} Pending deletions restored successfully.")
@@ -52,3 +54,4 @@ class Bot(Client):
 
 bot = Bot()
 bot.run()
+
