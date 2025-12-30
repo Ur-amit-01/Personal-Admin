@@ -1,6 +1,7 @@
 # plugins/Post/schedule.py
 from pyrogram import Client, filters
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from pyrogram.enums import ParseMode
 from plugins.helper.db import db
 import time
 import random
@@ -89,7 +90,6 @@ async def calculate_delay_until(schedule_time_str):
     delay = (scheduled_time_utc - now_utc).total_seconds()
     return max(1, delay)
 
-# ============ CORE SCHEDULING FUNCTIONS ============ #
 async def store_message_in_log_channel(client, message: Message, is_forward=False):
     """Store the message in log channel and return the message ID"""
     try:
@@ -110,6 +110,7 @@ async def store_message_in_log_channel(client, message: Message, is_forward=Fals
         print(f"Error storing message in log channel: {e}")
         return None
 
+# ============ CORE SCHEDULING FUNCTIONS ============ #
 async def execute_scheduled_post(client, schedule_id):
     """Execute a scheduled post using the message from log channel"""
     try:
@@ -288,6 +289,7 @@ async def restore_scheduled_posts(client):
 # ============ COMMAND HANDLERS ============ #
 @Client.on_message(filters.command(["schedule", "schedule0", "schedule1", "schedule2", "schedule3"]) & filters.private & admin_filter)
 async def schedule_post(client, message: Message):
+    """Handle schedule command with schedule name"""
     try:
         await message.react(emoji=random.choice(REACTIONS), big=True)
     except:
@@ -309,19 +311,30 @@ async def schedule_post(client, message: Message):
     if len(message.command) < 2:
         await message.reply(
             "**❌ Please specify schedule times in IST!**\n\n"
-            "**Format:** `/schedule 09:00,14:30,18:45`\n"
-            "**Or:** `/schedule 9am,2pm,6:30pm`\n\n"
-            "**Example:** `/schedule1 09:00,21:00`\n"
-            "**With auto-delete:** `/schedule 9am,6pm 2h`"
+            "**Format:** `/schedule ScheduleName 09:00,14:30,18:45`\n"
+            "**Or:** `/schedule ScheduleName 9am,2pm,6:30pm`\n\n"
+            "**Example:** `/schedule1 MorningPost 09:00,21:00`\n"
+            "**With auto-delete:** `/schedule EveningNews 9am,6pm 2h`"
         )
         return
     
     args = message.text.split()
-    time_input = args[1]
+    
+    # First argument after command is schedule name
+    if len(args) < 3:
+        await message.reply(
+            "**❌ Please provide schedule name and times!**\n\n"
+            "**Format:** `/schedule ScheduleName 09:00,14:30`\n"
+            "**Example:** `/schedule1 DailyUpdate 09:00,21:00`"
+        )
+        return
+    
+    schedule_name = args[1]
+    time_input = args[2]
     
     delete_after = None
-    if len(args) > 2:
-        delete_input = ' '.join(args[2:])
+    if len(args) > 3:
+        delete_input = ' '.join(args[3:])
         try:
             delete_after = parse_time(delete_input)
             if delete_after <= 0:
@@ -333,7 +346,7 @@ async def schedule_post(client, message: Message):
                 f"Error: {str(e)}\n\n"
                 "**Valid auto-delete formats:**\n"
                 "• `2h` (2 hours)\n• `30min` (30 minutes)\n• `1h 30min`\n• `2 days`\n\n"
-                "**Example:** `/schedule 9am,6pm 2h`"
+                "**Example:** `/schedule EveningNews 9am,6pm 2h`"
             )
             return
     
@@ -346,7 +359,7 @@ async def schedule_post(client, message: Message):
             "**Valid formats:**\n"
             "• `09:00,14:30,18:45` (24-hour)\n"
             "• `9am,2pm,6:30pm` (12-hour)\n"
-            "• `/schedule 9am,6pm 2h` (with auto-delete)"
+            "**Example:** `/schedule MorningPost 9am,6pm 2h`"
         )
         return
     
@@ -370,6 +383,7 @@ async def schedule_post(client, message: Message):
     schedule_id = int(time.time())
     schedule_data = {
         "schedule_id": schedule_id,
+        "schedule_name": schedule_name,
         "user_id": message.from_user.id,
         "group": group,
         "schedule_times": schedule_times,
@@ -393,6 +407,7 @@ async def schedule_post(client, message: Message):
     
     result_msg = (
         f"<blockquote>⏰ <b>Post Scheduled!</b></blockquote>\n\n"
+        f"• <b>Schedule Name:</b> {schedule_name}\n"
         f"• <b>Schedule ID:</b> <code>{schedule_id}</code>\n"
         f"• <b>Group:</b> {group}\n"
         f"• <b>Type:</b> {'Forward' if is_forward else 'Copy'}\n"
@@ -416,6 +431,7 @@ async def schedule_post(client, message: Message):
         log_msg = (
             f"⏰ <blockquote><b>#ScheduleCreated | Group {group}</b></blockquote>\n\n"
             f"👤 <b>By:</b> {message.from_user.mention}\n"
+            f"📝 <b>Name:</b> {schedule_name}\n"
             f"📌 <b>ID:</b> <code>{schedule_id}</code>\n"
             f"📋 <b>Type:</b> {'Forward' if is_forward else 'Copy'}\n"
             f"🕐 <b>Times:</b> {', '.join(schedule_times)} IST\n"
@@ -429,6 +445,151 @@ async def schedule_post(client, message: Message):
 async def forward_schedule_post(client, message: Message):
     await schedule_post(client, message)
 
+# ============ ENHANCED LIST SCHEDULES FUNCTION ============ #
+async def generate_schedule_list(schedules, with_links=True):
+    """Generate formatted schedule list with or without hyperlinks"""
+    if not schedules:
+        return "📋 <b>No schedules found.</b>"
+    
+    active_schedules = [s for s in schedules if s.get("status") == "active"]
+    paused_schedules = [s for s in schedules if s.get("status") == "paused"]
+    
+    result_msg = "<blockquote>📋 <b>All Schedules</b></blockquote>\n\n"
+    
+    if active_schedules:
+        result_msg += f"<b>▶ Active ({len(active_schedules)}):</b>\n"
+        for schedule in active_schedules:
+            schedule_id = schedule.get("schedule_id")
+            schedule_name = schedule.get("schedule_name", f"Schedule {schedule_id}")
+            group = schedule.get("group", "0")
+            times = ', '.join(schedule.get("schedule_times", []))
+            
+            if with_links:
+                result_msg += f"  • <a href='t.me/share/url?url=/viewschedule_{schedule_id}'>{schedule_name}</a> | Group {group} | {times} IST\n"
+            else:
+                result_msg += f"  • {schedule_name} | Group {group} | {times} IST\n"
+    
+    if paused_schedules:
+        result_msg += f"\n<b>⏸ Paused ({len(paused_schedules)}):</b>\n"
+        for schedule in paused_schedules:
+            schedule_id = schedule.get("schedule_id")
+            schedule_name = schedule.get("schedule_name", f"Schedule {schedule_id}")
+            group = schedule.get("group", "0")
+            times = ', '.join(schedule.get("schedule_times", []))
+            
+            if with_links:
+                result_msg += f"  • <a href='t.me/share/url?url=/viewschedule_{schedule_id}'>{schedule_name}</a> | Group {group} | {times} IST\n"
+            else:
+                result_msg += f"  • {schedule_name} | Group {group} | {times} IST\n"
+    
+    return result_msg
+
+# ============ VIEW SCHEDULE COMMAND ============ #
+@Client.on_message(filters.command(["viewschedule"]) & filters.private & admin_filter)
+async def view_schedule_command(client, message: Message):
+    """View detailed information about a specific schedule"""
+    if len(message.command) < 2:
+        await message.reply("**❌ Please provide a schedule ID!**\n\n**Format:** `/viewschedule schedule_id`")
+        return
+    
+    try:
+        schedule_id = int(message.command[1])
+    except ValueError:
+        await message.reply("**❌ Invalid schedule ID!**")
+        return
+    
+    schedule = await db.get_schedule(schedule_id)
+    if not schedule:
+        await message.reply("❌ Schedule not found.")
+        return
+    
+    await send_schedule_details(client, message.from_user.id, schedule)
+
+async def send_schedule_details(client, user_id, schedule):
+    """Send schedule details with buttons to user"""
+    schedule_id = schedule.get("schedule_id")
+    schedule_name = schedule.get("schedule_name", f"Schedule {schedule_id}")
+    group = schedule.get("group", "0")
+    schedule_times = schedule.get("schedule_times", [])
+    status = schedule.get("status", "active")
+    is_forward = schedule.get("is_forward", False)
+    delete_after = schedule.get("delete_after")
+    created_at = schedule.get("created_at", time.time())
+    
+    # Format creation date
+    created_str = datetime.fromtimestamp(created_at, IST).strftime("%Y-%m-%d %H:%M IST")
+    
+    # Get next run time
+    if status == "active" and schedule_times:
+        next_time = await get_next_run_time(schedule_times)
+        delay_seconds = await calculate_delay_until(next_time)
+        next_run_str = (datetime.now(IST) + timedelta(seconds=delay_seconds)).strftime("%Y-%m-%d %H:%M IST")
+    else:
+        next_run_str = "Not scheduled"
+    
+    # Create message
+    details_msg = (
+        f"<blockquote>📋 <b>Schedule Details</b></blockquote>\n\n"
+        f"📝 <b>Name:</b> {schedule_name}\n"
+        f"🆔 <b>ID:</b> <code>{schedule_id}</code>\n"
+        f"🏷 <b>Group:</b> {group}\n"
+        f"📅 <b>Created:</b> {created_str}\n"
+        f"📊 <b>Status:</b> {'▶ Active' if status == 'active' else '⏸ Paused'}\n"
+        f"🕐 <b>Times:</b> {', '.join(schedule_times)} IST\n"
+        f"⏳ <b>Next Run:</b> {next_run_str}\n"
+        f"📋 <b>Type:</b> {'Forward' if is_forward else 'Copy'}\n"
+    )
+    
+    if delete_after:
+        time_str = format_time(delete_after)
+        details_msg += f"🗑 <b>Auto-delete:</b> {time_str}\n"
+    
+    # Create buttons based on status
+    if status == "active":
+        action_buttons = [
+            [InlineKeyboardButton("⏸ Pause Schedule", callback_data=f"pause_schedule_{schedule_id}"),
+             InlineKeyboardButton("❌ Delete Schedule", callback_data=f"delete_schedule_{schedule_id}")]
+        ]
+    else:
+        action_buttons = [
+            [InlineKeyboardButton("▶ Resume Schedule", callback_data=f"resume_schedule_{schedule_id}"),
+             InlineKeyboardButton("❌ Delete Schedule", callback_data=f"delete_schedule_{schedule_id}")]
+        ]
+    
+    # Add navigation buttons
+    action_buttons.append(
+        [InlineKeyboardButton("📋 Back to List", callback_data="list_schedules")]
+    )
+    
+    try:
+        await client.send_message(
+            chat_id=user_id,
+            text=details_msg,
+            reply_markup=InlineKeyboardMarkup(action_buttons)
+        )
+    except Exception as e:
+        print(f"Error sending schedule details: {e}")
+
+# ============ HANDLE HYPERLINKS FROM LIST ============ #
+@Client.on_message(filters.regex(r'^/viewschedule_(\d+)$') & filters.private & admin_filter)
+async def handle_schedule_link(client, message: Message):
+    """Handle hyperlinks from schedule list"""
+    match = message.text.split('_')
+    if len(match) < 2:
+        return
+    
+    try:
+        schedule_id = int(match[1])
+    except ValueError:
+        return
+    
+    schedule = await db.get_schedule(schedule_id)
+    if not schedule:
+        await message.reply("❌ Schedule not found.")
+        return
+    
+    await send_schedule_details(client, message.from_user.id, schedule)
+
 # ============ CALLBACK HANDLERS ============ #
 @Client.on_callback_query(filters.regex(r"^pause_schedule_"))
 async def pause_schedule_handler(client, callback_query: CallbackQuery):
@@ -436,13 +597,10 @@ async def pause_schedule_handler(client, callback_query: CallbackQuery):
     schedule_id = int(callback_query.data.split("_")[2])
     await db.update_schedule(schedule_id, {"status": "paused"})
     
-    await callback_query.message.edit_text(
-        f"✅ <b>Schedule Paused</b>\n\n<b>ID:</b> <code>{schedule_id}</code>",
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("▶ Resume", callback_data=f"resume_schedule_{schedule_id}"),
-             InlineKeyboardButton("❌ Delete", callback_data=f"delete_schedule_{schedule_id}")]
-        ])
-    )
+    # Get updated schedule and send details
+    schedule = await db.get_schedule(schedule_id)
+    if schedule:
+        await send_schedule_details(client, callback_query.from_user.id, schedule)
 
 @Client.on_callback_query(filters.regex(r"^resume_schedule_"))
 async def resume_schedule_handler(client, callback_query: CallbackQuery):
@@ -456,91 +614,71 @@ async def resume_schedule_handler(client, callback_query: CallbackQuery):
     
     await db.update_schedule(schedule_id, {"status": "active"})
     
+    # Schedule next execution
     schedule_times = schedule.get("schedule_times", [])
     next_time = await get_next_run_time(schedule_times)
     delay_seconds = await calculate_delay_until(next_time)
     
     asyncio.create_task(schedule_next_post(client, schedule_id, delay_seconds))
     
-    await callback_query.message.edit_text(
-        f"✅ <b>Schedule Resumed</b>\n\n"
-        f"<b>ID:</b> <code>{schedule_id}</code>\n"
-        f"<b>Times:</b> {', '.join(schedule_times)} IST",
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("⏸ Pause", callback_data=f"pause_schedule_{schedule_id}"),
-             InlineKeyboardButton("❌ Delete", callback_data=f"delete_schedule_{schedule_id}")]
-        ])
-    )
+    # Get updated schedule and send details
+    updated_schedule = await db.get_schedule(schedule_id)
+    if updated_schedule:
+        await send_schedule_details(client, callback_query.from_user.id, updated_schedule)
 
 @Client.on_callback_query(filters.regex(r"^delete_schedule_"))
 async def delete_schedule_handler(client, callback_query: CallbackQuery):
     await callback_query.answer("Deleting schedule...")
     schedule_id = int(callback_query.data.split("_")[2])
+    
+    # Get schedule info before deletion
+    schedule = await db.get_schedule(schedule_id)
+    schedule_name = schedule.get("schedule_name", f"Schedule {schedule_id}") if schedule else f"Schedule {schedule_id}"
+    
     await db.delete_schedule(schedule_id)
-    await callback_query.message.edit_text(f"✅ <b>Schedule {schedule_id} Deleted</b>")
+    
+    await callback_query.message.edit_text(
+        f"✅ <b>Schedule Deleted</b>\n\n"
+        f"📝 <b>Name:</b> {schedule_name}\n"
+        f"🆔 <b>ID:</b> <code>{schedule_id}</code>\n\n"
+        f"This schedule has been permanently deleted.",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("📋 Back to List", callback_data="list_schedules")]
+        ])
+    )
 
 @Client.on_callback_query(filters.regex(r"^list_schedules$"))
 async def list_schedules_handler(client, callback_query: CallbackQuery):
     await callback_query.answer("Loading schedules...")
     schedules = await db.get_all_schedules()
     
-    if not schedules:
-        await callback_query.message.edit_text("📋 <b>No schedules found.</b>")
-        return
+    result_msg = await generate_schedule_list(schedules, with_links=True)
     
-    active_schedules = [s for s in schedules if s.get("status") == "active"]
-    paused_schedules = [s for s in schedules if s.get("status") == "paused"]
+    buttons = [
+        [InlineKeyboardButton("🔄 Refresh", callback_data="list_schedules")]
+    ]
     
-    result_msg = "<blockquote>📋 <b>All Schedules</b></blockquote>\n\n"
-    
-    if active_schedules:
-        result_msg += f"<b>▶ Active ({len(active_schedules)}):</b>\n"
-        for schedule in active_schedules[:10]:
-            schedule_id = schedule.get("schedule_id")
-            group = schedule.get("group", "0")
-            times = ', '.join(schedule.get("schedule_times", []))[:30]
-            result_msg += f"  • <code>{schedule_id}</code> | Group {group} | {times} IST\n"
-    
-    if paused_schedules:
-        result_msg += f"\n<b>⏸ Paused ({len(paused_schedules)}):</b>\n"
-        for schedule in paused_schedules[:10]:
-            schedule_id = schedule.get("schedule_id")
-            group = schedule.get("group", "0")
-            times = ', '.join(schedule.get("schedule_times", []))[:30]
-            result_msg += f"  • <code>{schedule_id}</code> | Group {group} | {times} IST\n"
-    
-    buttons = [[InlineKeyboardButton("🔄 Refresh", callback_data="list_schedules")]]
-    await callback_query.message.edit_text(result_msg, reply_markup=InlineKeyboardMarkup(buttons))
+    await callback_query.message.edit_text(
+        result_msg,
+        reply_markup=InlineKeyboardMarkup(buttons),
+        parse_mode=ParseMode.HTML,
+        disable_web_page_preview=True
+    )
 
 # ============ COMMAND FOR LISTING SCHEDULES ============ #
 @Client.on_message(filters.command(["listschedules", "schedules"]) & filters.private & admin_filter)
 async def list_schedules_command(client, message: Message):
+    """Send schedule list with hyperlinks"""
     schedules = await db.get_all_schedules()
     
-    if not schedules:
-        await message.reply("📋 <b>No schedules found.</b>")
-        return
+    result_msg = await generate_schedule_list(schedules, with_links=True)
     
-    active_schedules = [s for s in schedules if s.get("status") == "active"]
-    paused_schedules = [s for s in schedules if s.get("status") == "paused"]
+    # Add a helpful note
+    result_msg += "\n\n🔗 <i>Click on any schedule name to view details and manage it.</i>"
     
-    result_msg = "<blockquote>📋 <b>All Schedules</b></blockquote>\n\n"
-    
-    if active_schedules:
-        result_msg += f"<b>▶ Active ({len(active_schedules)}):</b>\n"
-        for schedule in active_schedules[:5]:
-            schedule_id = schedule.get("schedule_id")
-            group = schedule.get("group", "0")
-            result_msg += f"  • <code>{schedule_id}</code> | Group {group}\n"
-    
-    if paused_schedules:
-        result_msg += f"\n<b>⏸ Paused ({len(paused_schedules)}):</b>\n"
-        for schedule in paused_schedules[:5]:
-            schedule_id = schedule.get("schedule_id")
-            group = schedule.get("group", "0")
-            result_msg += f"  • <code>{schedule_id}</code> | Group {group}\n"
-    
-    buttons = [[InlineKeyboardButton("📋 View All Schedules", callback_data="list_schedules")]]
-    await message.reply(result_msg, reply_markup=InlineKeyboardMarkup(buttons))
-
+    await message.reply(
+        result_msg,
+        parse_mode=ParseMode.HTML,
+        disable_web_page_preview=True
+    )
 
