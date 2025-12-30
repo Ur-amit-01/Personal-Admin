@@ -15,6 +15,7 @@ import pytz
 
 # ============ CONSTANTS ============ #
 IST = pytz.timezone('Asia/Kolkata')
+BOT_USERNAME = "file_store_bot_going_23_bot"  # Update with your bot username
 
 # ============ HELPER FUNCTIONS ============ #
 async def parse_schedule_time(time_input: str):
@@ -419,10 +420,14 @@ async def schedule_post(client, message: Message):
         time_str = format_time(delete_after)
         result_msg += f"• <b>Auto-delete after:</b> {time_str}\n"
     
+    # Create schedule link
+    schedule_link = f"https://t.me/{BOT_USERNAME}?start=view_{schedule_id}"
+    
     buttons = [
-        [InlineKeyboardButton("⏸ Pause", callback_data=f"pause_schedule_{schedule_id}"),
-         InlineKeyboardButton("❌ Delete", callback_data=f"delete_schedule_{schedule_id}")],
-        [InlineKeyboardButton("📋 List Schedules", callback_data="list_schedules")]
+        [InlineKeyboardButton("📋 View Schedule", url=schedule_link),
+         InlineKeyboardButton("⏸ Pause", callback_data=f"pause_schedule_{schedule_id}")],
+        [InlineKeyboardButton("❌ Delete", callback_data=f"delete_schedule_{schedule_id}"),
+         InlineKeyboardButton("📋 List Schedules", callback_data="list_schedules")]
     ]
     
     await processing_msg.edit_text(result_msg, reply_markup=InlineKeyboardMarkup(buttons))
@@ -465,7 +470,8 @@ async def generate_schedule_list(schedules, with_links=True):
             times = ', '.join(schedule.get("schedule_times", []))
             
             if with_links:
-                result_msg += f"  • <a href='t.me/share/url?url=/viewschedule_{schedule_id}'>{schedule_name}</a> | Group {group} | {times} IST\n"
+                schedule_link = f"https://t.me/{BOT_USERNAME}?start=view_{schedule_id}"
+                result_msg += f"  • <a href='{schedule_link}'>{schedule_name}</a> | Group {group} | {times} IST\n"
             else:
                 result_msg += f"  • {schedule_name} | Group {group} | {times} IST\n"
     
@@ -478,11 +484,39 @@ async def generate_schedule_list(schedules, with_links=True):
             times = ', '.join(schedule.get("schedule_times", []))
             
             if with_links:
-                result_msg += f"  • <a href='t.me/share/url?url=/viewschedule_{schedule_id}'>{schedule_name}</a> | Group {group} | {times} IST\n"
+                schedule_link = f"https://t.me/{BOT_USERNAME}?start=view_{schedule_id}"
+                result_msg += f"  • <a href='{schedule_link}'>{schedule_name}</a> | Group {group} | {times} IST\n"
             else:
                 result_msg += f"  • {schedule_name} | Group {group} | {times} IST\n"
     
     return result_msg
+
+# ============ HANDLE START COMMAND FOR SCHEDULE VIEW ============ #
+@Client.on_message(filters.command("start") & filters.private & admin_filter)
+async def handle_start_command(client, message: Message):
+    """Handle start command with schedule view parameter"""
+    if len(message.command) > 1:
+        param = message.command[1]
+        
+        # Check if it's a schedule view request
+        if param.startswith("view_"):
+            try:
+                schedule_id = int(param.split("_")[1])
+                schedule = await db.get_schedule(schedule_id)
+                
+                if schedule:
+                    await send_schedule_details(client, message.from_user.id, schedule)
+                    return
+            except (ValueError, IndexError):
+                pass
+    
+    # Default start message (optional)
+    await message.reply(
+        "👋 <b>Welcome to Schedule Bot!</b>\n\n"
+        "Use /listschedules to view all schedules.\n"
+        "Use /schedule to create new schedules.",
+        parse_mode=ParseMode.HTML
+    )
 
 # ============ VIEW SCHEDULE COMMAND ============ #
 @Client.on_message(filters.command(["viewschedule"]) & filters.private & admin_filter)
@@ -569,26 +603,6 @@ async def send_schedule_details(client, user_id, schedule):
         )
     except Exception as e:
         print(f"Error sending schedule details: {e}")
-
-# ============ HANDLE HYPERLINKS FROM LIST ============ #
-@Client.on_message(filters.regex(r'^/viewschedule_(\d+)$') & filters.private & admin_filter)
-async def handle_schedule_link(client, message: Message):
-    """Handle hyperlinks from schedule list"""
-    match = message.text.split('_')
-    if len(match) < 2:
-        return
-    
-    try:
-        schedule_id = int(match[1])
-    except ValueError:
-        return
-    
-    schedule = await db.get_schedule(schedule_id)
-    if not schedule:
-        await message.reply("❌ Schedule not found.")
-        return
-    
-    await send_schedule_details(client, message.from_user.id, schedule)
 
 # ============ CALLBACK HANDLERS ============ #
 @Client.on_callback_query(filters.regex(r"^pause_schedule_"))
@@ -681,4 +695,3 @@ async def list_schedules_command(client, message: Message):
         parse_mode=ParseMode.HTML,
         disable_web_page_preview=True
     )
-
