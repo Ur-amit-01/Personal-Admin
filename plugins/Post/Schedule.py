@@ -15,7 +15,7 @@ import pytz
 
 # ============ CONSTANTS ============ #
 IST = pytz.timezone('Asia/Kolkata')
-BOT_USERNAME = "file_store_bot_going_23_bot"  # Update with your bot username
+BOT_USERNAME = "Legend_forward_test_bot"  # Update with your bot username
 
 # ============ HELPER FUNCTIONS ============ #
 async def parse_schedule_time(time_input: str):
