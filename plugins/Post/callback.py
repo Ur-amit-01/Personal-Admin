@@ -26,6 +26,16 @@ ADMIN_PREFIXES = {
     "remove_restricted_",
     "delete_",
     "confirm_post_"  # ADD THIS LINE - for Yes/No confirmation buttons
+    "schedule_",  # This might be too broad, better to use specific ones
+    "confirm_delete_",  # Schedule delete confirmation
+    "delete_yes_",  # Schedule delete confirm yes
+    "delete_no_",  # Schedule delete confirm no
+    "cmd_delete_yes_",  # Command delete yes
+    "cmd_delete_no",  # Command delete no
+    "list_schedules",  # List schedules
+    "pause_schedule_",  # Pause schedule (if you still have it)
+    "resume_schedule_",  # Resume schedule (if you still have it)
+    "do_nothing"  # Do nothing button from schedules    
 }
 
 # Update the regex to exclude confirmation callbacks
