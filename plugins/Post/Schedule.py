@@ -7,9 +7,14 @@ import random
 from plugins.helper.time_parser import parse_time, format_time
 import asyncio
 from datetime import datetime, timedelta
+import pytz
 from config import *
 from plugins.Post.admin_panel import admin_filter
 from plugins.Post.Posting import schedule_deletion, handle_deletion_results, is_restricted_error
+
+# ============ TIMEZONE CONFIG ============ #
+# Using Indian Standard Time (IST)
+IST = pytz.timezone('Asia/Kolkata')
 
 # ============ HELPER FUNCTIONS ============ #
 async def parse_schedule_time(time_input: str):
@@ -61,9 +66,10 @@ async def parse_schedule_time(time_input: str):
     return times
 
 async def get_next_run_time(schedule_times):
-    """Get the next scheduled time from now"""
-    now = datetime.now()
-    current_time_str = now.strftime("%H:%M")
+    """Get the next scheduled time from now in IST"""
+    # Get current time in IST
+    now_ist = datetime.now(IST)
+    current_time_str = now_ist.strftime("%H:%M")
     
     # Sort times
     sorted_times = sorted(schedule_times)
@@ -77,26 +83,29 @@ async def get_next_run_time(schedule_times):
     return sorted_times[0]
 
 async def calculate_delay_until(schedule_time_str):
-    """Calculate seconds until scheduled time"""
-    now = datetime.now()
+    """Calculate seconds until scheduled time in IST"""
+    # Get current time in IST
+    now_ist = datetime.now(IST)
     
     # Parse scheduled time
     hour, minute = map(int, schedule_time_str.split(':'))
-    scheduled_time = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    
+    # Create scheduled time in IST today
+    scheduled_time_ist = now_ist.replace(hour=hour, minute=minute, second=0, microsecond=0)
     
     # If scheduled time is in the past today, schedule for tomorrow
-    if scheduled_time < now:
-        scheduled_time += timedelta(days=1)
+    if scheduled_time_ist < now_ist:
+        scheduled_time_ist += timedelta(days=1)
     
     # Calculate delay in seconds
-    delay = (scheduled_time - now).total_seconds()
+    delay = (scheduled_time_ist - now_ist).total_seconds()
     return max(1, delay)  # Ensure at least 1 second
 
-# ============ DEBUG PRINT FUNCTION ============ #
 def debug_print(msg):
-    """Debug print with timestamp"""
-    timestamp = datetime.now().strftime("%H:%M:%S")
-    print(f"[{timestamp}] [SCHEDULE] {msg}")
+    """Debug print with IST timestamp"""
+    now_ist = datetime.now(IST)
+    timestamp = now_ist.strftime("%H:%M:%S")
+    print(f"[{timestamp} IST] [SCHEDULE] {msg}")
 
 # ============ CORE SCHEDULING FUNCTIONS ============ #
 async def store_message_in_log_channel(client, message: Message, is_forward=False):
@@ -268,13 +277,18 @@ async def execute_scheduled_post(client, schedule_id):
         
         # Log the scheduled post execution
         try:
+            # Get current IST time for log
+            now_ist = datetime.now(IST)
+            current_time_str = now_ist.strftime("%Y-%m-%d %H:%M:%S IST")
+            
             log_msg = (
                 f"⏰ <blockquote><b>#ScheduledPost Executed | Group {group}</b></blockquote>\n\n"
                 f"📌 <b>Schedule Name:</b> {schedule_name}\n"
                 f"📌 <b>Schedule ID:</b> <code>{schedule_id}</code>\n"
                 f"📌 <b>Post ID:</b> <code>{post_id}</code>\n"
+                f"⏰ <b>Executed At:</b> {current_time_str}\n"
                 f"📡 <b>Sent to:</b> {success_count}/{total_channels} channels\n"
-                f"🕐 <b>Scheduled Times:</b> {', '.join(schedule_times)}\n"
+                f"🕐 <b>Scheduled Times:</b> {', '.join(schedule_times)} IST\n"
                 f"📋 <b>Type:</b> {'Forward' if is_forward else 'Copy'}\n"
             )
             
@@ -309,7 +323,10 @@ async def execute_scheduled_post(client, schedule_id):
         # Schedule next execution
         next_time = await get_next_run_time(schedule_times)
         delay_seconds = await calculate_delay_until(next_time)
-        next_run_str = (datetime.now() + timedelta(seconds=delay_seconds)).strftime("%Y-%m-%d %H:%M")
+        
+        # Show next run in IST
+        next_run_ist = datetime.now(IST) + timedelta(seconds=delay_seconds)
+        next_run_str = next_run_ist.strftime("%Y-%m-%d %H:%M IST")
         
         debug_print(f"Schedule {schedule_id}: Next execution scheduled for {next_run_str} (in {delay_seconds} seconds)")
         
@@ -345,10 +362,13 @@ async def restore_scheduled_posts(client):
                 debug_print(f"Schedule {schedule_id}: No schedule times, skipping")
                 continue
             
-            # Calculate delay until next scheduled time
+            # Calculate delay until next scheduled time in IST
             next_time = await get_next_run_time(schedule_times)
             delay_seconds = await calculate_delay_until(next_time)
-            next_run_str = (datetime.now() + timedelta(seconds=delay_seconds)).strftime("%Y-%m-%d %H:%M")
+            
+            # Show next run in IST
+            next_run_ist = datetime.now(IST) + timedelta(seconds=delay_seconds)
+            next_run_str = next_run_ist.strftime("%Y-%m-%d %H:%M IST")
             
             debug_print(f"Schedule {schedule_id}: Next execution at {next_run_str} (in {delay_seconds} seconds)")
             
@@ -394,6 +414,7 @@ async def schedule_post(client, message: Message):
             "**❌ Please specify schedule times and name!**\n\n"
             "**Format:** `/schedule \"Schedule Name\" 09:00,14:30,18:45`\n"
             "**Or:** `/schedule \"My Daily Posts\" 9am,2pm,6:30pm`\n\n"
+            "**Note:** Times are in IST (Indian Standard Time)\n\n"
             "**Example:** `/schedule1 \"Morning Posts\" 09:00,21:00`\n"
             "**Example:** `/schedule2 \"Evening Updates\" 8am,12pm,4pm,8pm`\n\n"
             "**With auto-delete:** `/schedule \"Temp Posts\" 9am,6pm 2h`\n"
@@ -465,7 +486,7 @@ async def schedule_post(client, message: Message):
         await message.reply(
             f"**❌ Invalid schedule time format!**\n\n"
             f"Error: {str(e)}\n\n"
-            "**Valid schedule formats:**\n"
+            "**Valid schedule formats (IST Time):**\n"
             "• `09:00,14:30,18:45` (24-hour)\n"
             "• `9am,2pm,6:30pm` (12-hour)\n"
             "• `08:00,12:00,16:00,20:00`\n"
@@ -517,10 +538,13 @@ async def schedule_post(client, message: Message):
     # Save schedule to database
     await db.save_schedule(schedule_data)
     
-    # Calculate next run time
+    # Calculate next run time in IST
     next_time = await get_next_run_time(schedule_times)
     delay_seconds = await calculate_delay_until(next_time)
-    next_run_str = (datetime.now() + timedelta(seconds=delay_seconds)).strftime("%Y-%m-%d %H:%M")
+    
+    # Show next run in IST
+    next_run_ist = datetime.now(IST) + timedelta(seconds=delay_seconds)
+    next_run_str = next_run_ist.strftime("%Y-%m-%d %H:%M IST")
     
     # Schedule the first post
     debug_print(f"Scheduling first post for schedule {schedule_id} in {delay_seconds} seconds")
@@ -535,7 +559,7 @@ async def schedule_post(client, message: Message):
         f"• <b>Schedule ID:</b> <code>{schedule_id}</code>\n"
         f"• <b>Group:</b> {group}\n"
         f"• <b>Type:</b> {'Forward' if is_forward else 'Copy'}\n"
-        f"• <b>Schedule Times:</b> {', '.join(schedule_times)}\n"
+        f"• <b>Schedule Times:</b> {', '.join(schedule_times)} IST\n"
         f"• <b>Next Run:</b> {next_run_str}\n"
     )
     
@@ -545,23 +569,28 @@ async def schedule_post(client, message: Message):
     
     # Add management buttons
     buttons = [
-        [InlineKeyboardButton("❌ Delete Schedule", callback_data=f"delete_schedule_{schedule_id}")],
+        [InlineKeyboardButton("❌ Delete Schedule", callback_data=f"confirm_delete_{schedule_id}")],
         [InlineKeyboardButton("📋 List Schedules", callback_data="list_schedules")]
     ]
     
     reply_markup = InlineKeyboardMarkup(buttons)
     
-    await processing_msg.edit_text(result_msg, reply_markup=reply_markup)
+    await processing_msg.edit_text(result_msg)
+    #await processing_msg.edit_text(result_msg, reply_markup=reply_markup)
     
     # Log to log channel
     try:
+        now_ist = datetime.now(IST)
+        current_time_str = now_ist.strftime("%Y-%m-%d %H:%M:%S IST")
+        
         log_msg = (
             f"⏰ <blockquote><b>#ScheduleCreated | Group {group}</b></blockquote>\n\n"
             f"👤 <b>Scheduled By:</b> {message.from_user.mention}\n"
+            f"🕐 <b>Scheduled At:</b> {current_time_str}\n"
             f"📌 <b>Schedule Name:</b> {schedule_name}\n"
             f"📌 <b>Schedule ID:</b> <code>{schedule_id}</code>\n"
             f"📋 <b>Type:</b> {'Forward' if is_forward else 'Copy'}\n"
-            f"🕐 <b>Times:</b> {', '.join(schedule_times)}\n"
+            f"🕐 <b>Times:</b> {', '.join(schedule_times)} IST\n"
             f"⏳ <b>Next Run:</b> {next_run_str}\n"
         )
         
@@ -584,13 +613,51 @@ async def forward_schedule_post(client, message: Message):
     await schedule_post(client, message)
 
 # ============ CALLBACK HANDLERS ============ #
-@Client.on_callback_query(filters.regex(r"^delete_schedule_"))
-async def delete_schedule_handler(client, callback_query: CallbackQuery):
+@Client.on_callback_query(filters.regex(r"^confirm_delete_"))
+async def confirm_delete_handler(client, callback_query: CallbackQuery):
+    schedule_id = int(callback_query.data.split("_")[2])
+    
+    # Get schedule info for confirmation
+    schedule = await db.get_schedule(schedule_id)
+    
+    if not schedule:
+        await callback_query.answer("Schedule not found!", show_alert=True)
+        await callback_query.message.edit_text("❌ Schedule not found.")
+        return
+    
+    schedule_name = schedule.get("name", f"Schedule {schedule_id}")
+    group = schedule.get("group", "0")
+    times = ', '.join(schedule.get("schedule_times", []))
+    
+    # Ask for confirmation
+    await callback_query.answer("Confirm deletion...")
+    
+    confirm_msg = (
+        f"⚠️ <b>Confirm Schedule Deletion</b>\n\n"
+        f"• <b>Schedule Name:</b> {schedule_name}\n"
+        f"• <b>Schedule ID:</b> <code>{schedule_id}</code>\n"
+        f"• <b>Group:</b> {group}\n"
+        f"• <b>Times:</b> {times} IST\n\n"
+        f"Are you sure you want to delete this schedule?"
+    )
+    
+    await callback_query.message.edit_text(
+        confirm_msg,
+        reply_markup=InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("✅ Yes, Delete", callback_data=f"delete_yes_{schedule_id}"),
+                InlineKeyboardButton("❌ Cancel", callback_data=f"delete_no_{schedule_id}")
+            ]
+        ])
+    )
+
+@Client.on_callback_query(filters.regex(r"^delete_yes_"))
+async def delete_yes_handler(client, callback_query: CallbackQuery):
     await callback_query.answer("Deleting schedule...")
     
     schedule_id = int(callback_query.data.split("_")[2])
     
-    # Get schedule info for confirmation message
+    # Get schedule info before deleting
     schedule = await db.get_schedule(schedule_id)
     
     # Delete schedule from database
@@ -613,11 +680,18 @@ async def delete_schedule_handler(client, callback_query: CallbackQuery):
     
     # Log deletion
     try:
+        now_ist = datetime.now(IST)
+        current_time_str = now_ist.strftime("%Y-%m-%d %H:%M:%S IST")
+        
         log_msg = (
             f"🗑 <blockquote><b>#ScheduleDeleted</b></blockquote>\n\n"
             f"👤 <b>Deleted By:</b> {callback_query.from_user.mention}\n"
+            f"🕐 <b>Deleted At:</b> {current_time_str}\n"
             f"📌 <b>Schedule ID:</b> <code>{schedule_id}</code>\n"
         )
+        
+        if schedule:
+            log_msg += f"📝 <b>Schedule Name:</b> {schedule.get('name', f'Schedule {schedule_id}')}\n"
         
         await client.send_message(
             chat_id=LOG_CHANNEL,
@@ -625,6 +699,12 @@ async def delete_schedule_handler(client, callback_query: CallbackQuery):
         )
     except:
         pass
+
+@Client.on_callback_query(filters.regex(r"^delete_no_"))
+async def delete_no_handler(client, callback_query: CallbackQuery):
+    await callback_query.answer("Deletion cancelled")
+    # Go back to schedule list
+    await list_schedules_handler(client, callback_query)
 
 @Client.on_callback_query(filters.regex(r"^list_schedules$"))
 async def list_schedules_handler(client, callback_query: CallbackQuery):
@@ -645,7 +725,12 @@ async def list_schedules_handler(client, callback_query: CallbackQuery):
             schedule_groups[group] = []
         schedule_groups[group].append(schedule)
     
-    result_msg = "<blockquote>📋 <b>All Schedules</b></blockquote>\n\n"
+    # Get current IST time for header
+    now_ist = datetime.now(IST)
+    current_time_str = now_ist.strftime("%Y-%m-%d %H:%M:%S IST")
+    
+    result_msg = f"<blockquote>📋 <b>All Schedules</b></blockquote>\n"
+    result_msg += f"<i>Current Time: {current_time_str}</i>\n\n"
     
     # Sort groups
     for group in sorted(schedule_groups.keys()):
@@ -657,35 +742,41 @@ async def list_schedules_handler(client, callback_query: CallbackQuery):
             schedule_name = schedule.get("name", f"Schedule {schedule_id}")
             times = ', '.join(schedule.get("schedule_times", []))[:30]
             
-            # Add delete button
-            delete_button = InlineKeyboardButton(
-                f"🗑 {schedule_id}", 
-                callback_data=f"delete_schedule_{schedule_id}"
-            )
-            
             # Add delete info if exists
             delete_info = ""
             if schedule.get("delete_after"):
                 delete_info = f" | 🗑 {format_time(schedule.get('delete_after'))}"
             
             result_msg += f"  • <b>{schedule_name}</b>\n"
-            result_msg += f"    ID: <code>{schedule_id}</code> | Times: {times}{delete_info}\n"
+            result_msg += f"  • ID: <code>{schedule_id}</code> | Times: {times} {delete_info}\n"
         
         result_msg += "\n"
     
     buttons = []
     
-    # Create delete buttons for each schedule (grouped by 3)
+    # Create buttons: Left button with schedule name (does nothing), Right button with delete icon
     for group in sorted(schedule_groups.keys()):
         group_schedules = schedule_groups[group]
-        for i in range(0, len(group_schedules), 3):
-            row_buttons = []
-            for schedule in group_schedules[i:i+3]:
-                schedule_id = schedule.get("schedule_id")
-                schedule_name = schedule.get("name", f"S{schedule_id}")
-                # Truncate name if too long
-                btn_text = f"🗑 {schedule_name[:15]}" if len(schedule_name) > 15 else f"🗑 {schedule_name}"
-                row_buttons.append(InlineKeyboardButton(btn_text, callback_data=f"delete_schedule_{schedule_id}"))
+        for schedule in group_schedules:
+            schedule_id = schedule.get("schedule_id")
+            schedule_name = schedule.get("name", f"Schedule {schedule_id}")
+            
+            # Truncate name if too long
+            name_text = schedule_name[:25] if len(schedule_name) > 25 else schedule_name
+            
+            # Create row with 2 buttons
+            row_buttons = [
+                # Left button: Schedule name (does nothing when clicked)
+                InlineKeyboardButton(
+                    f"📅 {name_text}",
+                    callback_data="do_nothing"  # This callback does nothing
+                ),
+                # Right button: Delete icon
+                InlineKeyboardButton(
+                    "🗑️ ᴅᴇʟᴇᴛᴇ",
+                    callback_data=f"confirm_delete_{schedule_id}"
+                )
+            ]
             buttons.append(row_buttons)
     
     # Add refresh button at the end
@@ -695,6 +786,12 @@ async def list_schedules_handler(client, callback_query: CallbackQuery):
         result_msg,
         reply_markup=InlineKeyboardMarkup(buttons)
     )
+
+# Handler for the "do nothing" button
+@Client.on_callback_query(filters.regex(r"^do_nothing$"))
+async def do_nothing_handler(client, callback_query: CallbackQuery):
+    # Just acknowledge the click without doing anything
+    await callback_query.answer("ℹ️ Click the 🗑️ button to delete", show_alert=False)
 
 # ============ COMMAND FOR LISTING SCHEDULES ============ #
 @Client.on_message(filters.command(["listschedules", "schedules"]) & filters.private & admin_filter)
@@ -706,41 +803,28 @@ async def list_schedules_command(client, message: Message):
         await message.reply("📋 <b>No schedules found.</b>")
         return
     
-    # Group schedules by group
-    schedule_groups = {}
-    for schedule in schedules:
+    # Get current IST time
+    now_ist = datetime.now(IST)
+    current_time_str = now_ist.strftime("%Y-%m-%d %H:%M:%S IST")
+    
+    result_msg = f"<blockquote>📋 <b>All Schedules</b></blockquote>\n"
+    result_msg += f"<i>Current Time: {current_time_str}</i>\n\n"
+    
+    # Show total count
+    result_msg += f"<b>Total Schedules:</b> {len(schedules)}\n\n"
+    
+    # Show first few schedules as example
+    for schedule in schedules[:3]:
+        schedule_id = schedule.get("schedule_id")
+        schedule_name = schedule.get("name", f"Schedule {schedule_id}")
         group = schedule.get("group", "0")
-        if group not in schedule_groups:
-            schedule_groups[group] = []
-        schedule_groups[group].append(schedule)
-    
-    result_msg = "<blockquote>📋 <b>All Schedules</b></blockquote>\n\n"
-    
-    # Sort groups and show top 3 from each
-    for group in sorted(schedule_groups.keys())[:3]:  # Limit to 3 groups
-        group_schedules = schedule_groups[group][:5]  # Limit to 5 per group
-        result_msg += f"<b>📌 Group {group} ({len(schedule_groups[group])} total):</b>\n"
+        times = ', '.join(schedule.get("schedule_times", []))[:25]
         
-        for schedule in group_schedules:
-            schedule_id = schedule.get("schedule_id")
-            schedule_name = schedule.get("name", f"Schedule {schedule_id}")
-            times = ', '.join(schedule.get("schedule_times", []))[:25]
-            
-            # Add delete info if exists
-            delete_info = ""
-            if schedule.get("delete_after"):
-                delete_info = f" | 🗑 {format_time(schedule.get('delete_after'))}"
-            
-            result_msg += f"  • <b>{schedule_name}</b>\n"
-            result_msg += f"    ID: <code>{schedule_id}</code> | Times: {times}{delete_info}\n"
-        
-        if len(schedule_groups[group]) > 5:
-            result_msg += f"    ...and {len(schedule_groups[group]) - 5} more\n"
-        
-        result_msg += "\n"
+        result_msg += f"• <b>{schedule_name}</b> (Group {group})\n"
+        result_msg += f"  Times: {times} IST\n"
     
-    if len(schedule_groups) > 3:
-        result_msg += f"<i>...and {len(schedule_groups) - 3} more groups</i>\n\n"
+    if len(schedules) > 3:
+        result_msg += f"\n<i>...and {len(schedules) - 3} more schedules</i>\n\n"
     
     result_msg += "Click below to view and manage all schedules:"
     
@@ -780,26 +864,30 @@ async def delete_schedule_command(client, message: Message):
         return
     
     schedule_name = schedule.get("name", f"Schedule {schedule_id}")
+    group = schedule.get("group", "0")
+    times = ', '.join(schedule.get("schedule_times", []))
     
     # Ask for confirmation
     confirm_msg = await message.reply(
         f"**⚠️ Confirm Schedule Deletion**\n\n"
         f"• <b>Schedule Name:</b> {schedule_name}\n"
         f"• <b>Schedule ID:</b> <code>{schedule_id}</code>\n"
-        f"• <b>Group:</b> {schedule.get('group', '0')}\n"
-        f"• <b>Times:</b> {', '.join(schedule.get('schedule_times', []))}\n\n"
+        f"• <b>Group:</b> {group}\n"
+        f"• <b>Times:</b> {times} IST\n\n"
         f"Are you sure you want to delete this schedule?",
         reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("✅ Yes, Delete", callback_data=f"confirm_delete_{schedule_id}"),
-             InlineKeyboardButton("❌ Cancel", callback_data="cancel_delete")]
+            [
+                InlineKeyboardButton("✅ Yes, Delete", callback_data=f"cmd_delete_yes_{schedule_id}"),
+                InlineKeyboardButton("❌ Cancel", callback_data="cmd_delete_no")
+            ]
         ])
     )
 
-@Client.on_callback_query(filters.regex(r"^confirm_delete_"))
-async def confirm_delete_handler(client, callback_query: CallbackQuery):
+@Client.on_callback_query(filters.regex(r"^cmd_delete_yes_"))
+async def cmd_delete_yes_handler(client, callback_query: CallbackQuery):
     await callback_query.answer("Deleting schedule...")
     
-    schedule_id = int(callback_query.data.split("_")[2])
+    schedule_id = int(callback_query.data.split("_")[3])
     
     # Get schedule info before deleting
     schedule = await db.get_schedule(schedule_id)
@@ -825,9 +913,13 @@ async def confirm_delete_handler(client, callback_query: CallbackQuery):
     
     # Log deletion
     try:
+        now_ist = datetime.now(IST)
+        current_time_str = now_ist.strftime("%Y-%m-%d %H:%M:%S IST")
+        
         log_msg = (
             f"🗑 <blockquote><b>#ScheduleDeleted</b></blockquote>\n\n"
             f"👤 <b>Deleted By:</b> {callback_query.from_user.mention}\n"
+            f"🕐 <b>Deleted At:</b> {current_time_str}\n"
             f"📌 <b>Schedule ID:</b> <code>{schedule_id}</code>\n"
             f"📝 <b>Via Command:</b> Yes\n"
         )
@@ -839,7 +931,7 @@ async def confirm_delete_handler(client, callback_query: CallbackQuery):
     except:
         pass
 
-@Client.on_callback_query(filters.regex(r"^cancel_delete$"))
-async def cancel_delete_handler(client, callback_query: CallbackQuery):
+@Client.on_callback_query(filters.regex(r"^cmd_delete_no$"))
+async def cmd_delete_no_handler(client, callback_query: CallbackQuery):
     await callback_query.answer("Deletion cancelled")
     await callback_query.message.edit_text("❌ Schedule deletion cancelled.")
