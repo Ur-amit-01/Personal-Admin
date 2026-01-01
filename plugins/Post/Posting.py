@@ -221,9 +221,7 @@ async def handle_post_confirmation(client, callback_query: CallbackQuery):
         
         # Update the confirmation message to show processing
         await callback_query.message.edit_text(
-            f"**✅ Confirmed! Processing your {command_type} command...**\n\n"
-            f"**Group:** {group}\n"
-            f"**Auto-delete:** {format_time(delete_after) if delete_after else 'No'}"
+            f"**✅ Confirmed! Processing your Request...**"
         )
         
         # Call the appropriate function based on command type
@@ -246,10 +244,6 @@ async def send_post(client, message: Message):
         await message.react(emoji=random.choice(REACTIONS), big=True)
     except:
         pass
-    
-    if not await db.is_admin(message.from_user.id):
-        await message.reply("**❌ You are not authorized to use this command!**")
-        return
     
     if not message.reply_to_message:
         await message.reply("**Reply to a message to post it.**")
@@ -286,12 +280,8 @@ async def send_post(client, message: Message):
     time_str = format_time(delete_after) if delete_after else "No auto-delete"
     
     confirmation_text = (
-        f"<blockquote>⚠️ <b>POSTING CONFIRMATION</b></blockquote>\n\n"
-        f"• <b>Command:</b> /{cmd}\n"
-        f"• <b>Group:</b> {group}\n"
-        f"• <b>Channels:</b> {channels_count} channels\n"
-        f"• <b>Auto-delete:</b> {time_str}\n\n"
-        f"<i>Are you sure you want to post this message to {channels_count} channel(s)?</i>"
+        f"<blockquote>⚠️ <b>POSTING CONFIRMATION</b></blockquote>\n"
+        f"<b>Are you sure you want to post this message to {channels_count} channels?</b>"
     )
     
     # Create confirmation buttons
@@ -357,7 +347,7 @@ async def process_post_command(client, message, post_content, group, delete_afte
     processing_msg = await client.edit_message_text(
         chat_id=message.chat.id,
         message_id=confirmation_msg_id,
-        text=f"**📢 Posting to {total_channels} channels in group {group}...**",
+        text=f"**📢 Posting to {total_channels} channels...**",
         reply_markup=None
     )
 
@@ -527,10 +517,6 @@ async def forward_post(client, message: Message):
     except:
         pass
     
-    if not await db.is_admin(message.from_user.id):
-        await message.reply("**❌ You are not authorized to use this command!**")
-        return
-    
     if not message.reply_to_message:
         await message.reply("**Reply to a message to forward it.**")
         return
@@ -566,12 +552,8 @@ async def forward_post(client, message: Message):
     time_str = format_time(delete_after) if delete_after else "No auto-delete"
     
     confirmation_text = (
-        f"<blockquote>⚠️ <b>FORWARDING CONFIRMATION</b></blockquote>\n\n"
-        f"• <b>Command:</b> /{cmd}\n"
-        f"• <b>Group:</b> {group}\n"
-        f"• <b>Channels:</b> {channels_count} channels\n"
-        f"• <b>Auto-delete:</b> {time_str}\n\n"
-        f"<i>Are you sure you want to forward this message to {channels_count} channel(s)?</i>"
+        f"<blockquote>⚠️ <b>FORWARDING CONFIRMATION</b></blockquote>\n"
+        f"<b>Are you sure you want to forward this message to {channels_count} channels?</b>"
     )
     
     # Create confirmation buttons
@@ -637,7 +619,7 @@ async def process_fpost_command(client, message, post_content, group, delete_aft
     processing_msg = await client.edit_message_text(
         chat_id=message.chat.id,
         message_id=confirmation_msg_id,
-        text=f"**📢 Forwarding to {total_channels} channels in group {group}...**",
+        text=f"**📢 Forwarding to {total_channels} channels...**",
         reply_markup=None
     )
 
@@ -906,11 +888,6 @@ async def delete_post_callback(client, callback_query: CallbackQuery):
         await callback_query.message.edit_text("❌ Post not found.")
         return
     
-    # Check if user is admin
-    if not await db.is_admin(callback_query.from_user.id):
-        await callback_query.message.edit_text("❌ You are not authorized to delete this post.")
-        return
-    
     # Delete messages from all channels
     channels = post.get("channels", [])
     deleted_count = 0
@@ -939,7 +916,7 @@ async def delete_post_callback(client, callback_query: CallbackQuery):
     )
     
     if failed_deletions:
-        result_msg += f"• <b>Failed to delete from:</b> {len(failed_deletions)} channel(s)\n"
+        result_msg += f"• <b>Failed to delete from:</b> {n(failed_deletions)} channel(s)\n"
         if len(failed_deletions) <= 5:
             result_msg += "\n<b>Failed Channels:</b>\n"
             for idx, fail in enumerate(failed_deletions, 1):
