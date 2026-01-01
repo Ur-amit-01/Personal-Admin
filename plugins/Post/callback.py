@@ -39,7 +39,7 @@ ADMIN_PREFIXES = {
 }
 
 # Update the regex to exclude confirmation callbacks
-@Client.on_callback_query(filters.regex(r'^(?!admin_|promote_|demote_|list_|backup_|restore_|broadcast_|stats_|back_|remove_failed_|remove_restricted_|delete_|confirm_post_).*'))
+@Client.on_callback_query(filters.regex(r'^(?!admin_|promote_|demote_|list_|backup_|restore_|broadcast_|stats_|back_|remove_failed_|remove_restricted_|delete_|confirm_post_|confirm_delete_|delete_yes_|delete_no_|cmd_delete_yes_|cmd_delete_no|list_schedules|do_nothing).*'))
 async def cb_handler(client: Client, query: CallbackQuery):
     try:
         data = query.data
