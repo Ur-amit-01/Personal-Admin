@@ -280,7 +280,6 @@ async def send_post(client, message: Message):
     time_str = format_time(delete_after) if delete_after else "No auto-delete"
     
     confirmation_text = (
-        f"<blockquote>⚠️ <b>POSTING CONFIRMATION</b></blockquote>\n"
         f"<b>Are you sure you want to post this message to {channels_count} channels?</b>"
     )
     
@@ -552,7 +551,6 @@ async def forward_post(client, message: Message):
     time_str = format_time(delete_after) if delete_after else "No auto-delete"
     
     confirmation_text = (
-        f"<blockquote>⚠️ <b>FORWARDING CONFIRMATION</b></blockquote>\n"
         f"<b>Are you sure you want to forward this message to {channels_count} channels?</b>"
     )
     
