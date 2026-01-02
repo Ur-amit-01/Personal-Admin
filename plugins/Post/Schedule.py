@@ -645,8 +645,8 @@ async def confirm_delete_handler(client, callback_query: CallbackQuery):
         confirm_msg,
         reply_markup=InlineKeyboardMarkup([
             [
-                InlineKeyboardButton("✅ Yes, Delete", callback_data=f"delete_yes_{schedule_id}"),
-                InlineKeyboardButton("❌ Cancel", callback_data=f"delete_no_{schedule_id}")
+                InlineKeyboardButton("✅ Yes, Delete", callback_data=f"cmd_delete_yes_{schedule_id}"),
+                InlineKeyboardButton("❌ Cancel", callback_data=f"cmd_delete_no_{schedule_id}")
             ]
         ])
     )
@@ -796,47 +796,82 @@ async def do_nothing_handler(client, callback_query: CallbackQuery):
 # ============ COMMAND FOR LISTING SCHEDULES ============ #
 @Client.on_message(filters.command(["listschedules", "schedules"]) & filters.private & admin_filter)
 async def list_schedules_command(client, message: Message):
-    # Create a simple list response with inline buttons
+    # Get all schedules
     schedules = await db.get_all_schedules()
     
     if not schedules:
         await message.reply("📋 <b>No schedules found.</b>")
         return
     
-    # Get current IST time
+    # Group schedules by group
+    schedule_groups = {}
+    for schedule in schedules:
+        group = schedule.get("group", "0")
+        if group not in schedule_groups:
+            schedule_groups[group] = []
+        schedule_groups[group].append(schedule)
+    
+    # Get current IST time for header
     now_ist = datetime.now(IST)
     current_time_str = now_ist.strftime("%Y-%m-%d %H:%M:%S IST")
     
     result_msg = f"<blockquote>📋 <b>All Schedules</b></blockquote>\n"
     result_msg += f"<i>Current Time: {current_time_str}</i>\n\n"
     
-    # Show total count
-    result_msg += f"<b>Total Schedules:</b> {len(schedules)}\n\n"
-    
-    # Show first few schedules as example
-    for schedule in schedules[:3]:
-        schedule_id = schedule.get("schedule_id")
-        schedule_name = schedule.get("name", f"Schedule {schedule_id}")
-        group = schedule.get("group", "0")
-        times = ', '.join(schedule.get("schedule_times", []))[:25]
+    # Sort groups
+    for group in sorted(schedule_groups.keys()):
+        group_schedules = schedule_groups[group]
+        result_msg += f"<b>📌 Group {group} ({len(group_schedules)}):</b>\n"
         
-        result_msg += f"• <b>{schedule_name}</b> (Group {group})\n"
-        result_msg += f"  Times: {times} IST\n"
+        for schedule in group_schedules:
+            schedule_id = schedule.get("schedule_id")
+            schedule_name = schedule.get("name", f"Schedule {schedule_id}")
+            times = ', '.join(schedule.get("schedule_times", []))[:30]
+            
+            # Add delete info if exists
+            delete_info = ""
+            if schedule.get("delete_after"):
+                delete_info = f" | 🗑 {format_time(schedule.get('delete_after'))}"
+            
+            result_msg += f"  • <b>{schedule_name}</b>\n"
+            result_msg += f"  • ID: <code>{schedule_id}</code> | Times: {times} {delete_info}\n"
+        
+        result_msg += "\n"
     
-    if len(schedules) > 3:
-        result_msg += f"\n<i>...and {len(schedules) - 3} more schedules</i>\n\n"
+    buttons = []
     
-    result_msg += "Click below to view and manage all schedules:"
+    # Create buttons: Left button with schedule name (does nothing), Right button with delete icon
+    for group in sorted(schedule_groups.keys()):
+        group_schedules = schedule_groups[group]
+        for schedule in group_schedules:
+            schedule_id = schedule.get("schedule_id")
+            schedule_name = schedule.get("name", f"Schedule {schedule_id}")
+            
+            # Truncate name if too long
+            name_text = schedule_name[:25] if len(schedule_name) > 25 else schedule_name
+            
+            # Create row with 2 buttons
+            row_buttons = [
+                # Left button: Schedule name (does nothing when clicked)
+                InlineKeyboardButton(
+                    f"📅 {name_text}",
+                    callback_data="do_nothing"  # This callback does nothing
+                ),
+                # Right button: Delete icon
+                InlineKeyboardButton(
+                    "🗑️ ᴅᴇʟᴇᴛᴇ",
+                    callback_data=f"confirm_delete_{schedule_id}"
+                )
+            ]
+            buttons.append(row_buttons)
     
-    buttons = [
-        [InlineKeyboardButton("📋 View & Manage All Schedules", callback_data="list_schedules")]
-    ]
+    # Add refresh button at the end
+    buttons.append([InlineKeyboardButton("🔄 Refresh", callback_data="list_schedules")])
     
     await message.reply(
         result_msg,
         reply_markup=InlineKeyboardMarkup(buttons)
     )
-
 # ============ COMMAND FOR DELETING SCHEDULE BY ID ============ #
 @Client.on_message(filters.command(["deleteschedule", "delschedule"]) & filters.private & admin_filter)
 async def delete_schedule_command(client, message: Message):
