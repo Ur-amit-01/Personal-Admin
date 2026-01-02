@@ -403,8 +403,12 @@ async def schedule_post(client, message: Message):
     # Determine which group to post to
     cmd = message.command[0]
     group = "0"  # Default group
-    if len(cmd) > 8:  # For schedule1, schedule2, schedule3
-        group = cmd[-1]
+    
+    # Check if command contains a number at the end
+    # This handles both /schedule1 and /fschedule1
+    if cmd[-1].isdigit():
+        group = cmd[-1]  # Get the number from the end
+    # If it's just /schedule or /fschedule without number, keep group as "0"
     
     # Parse the command arguments
     args = message.text.split()
@@ -605,13 +609,7 @@ async def schedule_post(client, message: Message):
         debug_print(f"Error sending schedule log: {e}")
     
     debug_print(f"Schedule {schedule_id} created successfully")
-
-# Forward schedule command (different command but same logic)
-@Client.on_message(filters.command(["fschedule", "fschedule0", "fschedule1", "fschedule2", "fschedule3"]) & filters.private & admin_filter)
-async def forward_schedule_post(client, message: Message):
-    # The schedule_post function will detect it's a forward from the command
-    await schedule_post(client, message)
-
+    
 # ============ CALLBACK HANDLERS ============ #
 @Client.on_callback_query(filters.regex(r"^confirm_delete_"))
 async def confirm_delete_handler(client, callback_query: CallbackQuery):
@@ -791,7 +789,7 @@ async def list_schedules_handler(client, callback_query: CallbackQuery):
 @Client.on_callback_query(filters.regex(r"^do_nothing$"))
 async def do_nothing_handler(client, callback_query: CallbackQuery):
     # Just acknowledge the click without doing anything
-    await callback_query.answer("ℹ️ Click the 🗑️ button to delete", show_alert=False)
+    await callback_query.answer("ℹ️ Click the delete 🗑️ button to delete this schedule.", show_alert=True)
 
 # ============ COMMAND FOR LISTING SCHEDULES ============ #
 @Client.on_message(filters.command(["listschedules", "schedules"]) & filters.private & admin_filter)
