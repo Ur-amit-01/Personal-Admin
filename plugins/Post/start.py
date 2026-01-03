@@ -5,6 +5,7 @@ from plugins.helper.db import db
 import random
 from plugins.Post.admin_panel import admin_filter
 import re
+from pyrogram.enums import ParseMode
 
 # =====================================================================================
 
@@ -70,88 +71,31 @@ async def set_commands(client: Client, message: Message):
 #====================================================================================
 
 @Client.on_message(filters.private & filters.command("format"))
-async def format_html_command(client, message: Message):
-    """
-    Convert HTML to Telegram formatted text
-    Usage: /format <html> or reply to a message with /format
-    """
-    # Get the HTML text
-    if message.reply_to_message:
-        html_text = message.reply_to_message.text or message.reply_to_message.caption
-    else:
-        if len(message.command) > 1:
-            html_text = ' '.join(message.command[1:])
-        else:
-            await message.reply_text(
-                "**Usage:**\n"
-                "• Reply to an HTML message with `/format`\n"
-                "• Or send `/format <your_html_here>`\n\n"
-                "**Example:**\n"
-                '`/format <b>Hello</b> click <a href="https://example.com">here</a>`'
-            )
-            return
-    
-    if not html_text:
-        await message.reply_text("❌ No text found to format.")
-        return
-    
-    # Send with HTML parse mode - Telegram will format it automatically
-    try:
-        await message.reply_text(
-            html_text,
-            parse_mode="html",  # THIS IS THE MAGIC LINE
-            disable_web_page_preview=True,
-            reply_to_message_id=message.reply_to_message.id if message.reply_to_message else None
-        )
-    except Exception as e:
-        # If Telegram can't parse the HTML, try to clean it first
-        await message.reply_text(
-            "❌ Telegram couldn't parse the HTML. Trying cleaned version...",
-            reply_to_message_id=message.id
-        )
-        
-        # Clean common HTML issues
-        cleaned_html = clean_html_for_telegram(html_text)
-        
-        try:
-            await message.reply_text(
-                cleaned_html,
-                parse_mode="html",
-                disable_web_page_preview=True
-            )
-        except Exception as e2:
-            await message.reply_text(
-                f"❌ Failed to parse even after cleaning.\nError: `{str(e2)[:100]}`"
-            )
+async def format_html_command(client: Client, message: Message):
 
-def clean_html_for_telegram(html_text):
-    """Clean HTML to make it compatible with Telegram's parser"""
-    # Fix: ### href="url"sb>TEXT</b></a> -> <a href="url"><b>TEXT</b></a>
-    html_text = re.sub(
-        r'###\s*href="([^"]+)"[^>]*>sb>([^<]+)</b></a>',
-        r'<a href="\1"><b>\2</b></a>',
-        html_text
+    await message.reply("🔍 Testing parse modes...")
+
+    tests = [
+        (ParseMode.HTML, "<b>HTML Bold</b>"),
+        (ParseMode.MARKDOWN, "**Markdown Bold**"),
+        (ParseMode.MARKDOWN_V2, "\\*MarkdownV2 Bold\\*"),
+        (None, "<b>No Parse Mode</b>")
+    ]
+
+    results = []
+
+    for parse_mode, text in tests:
+        try:
+            if parse_mode:
+                await message.reply(text, parse_mode=parse_mode)
+                results.append(f"✅ {parse_mode}")
+            else:
+                await message.reply(text)
+                results.append("✅ No parse mode")
+        except Exception as e:
+            results.append(f"❌ {parse_mode}: {e}")
+
+    await message.reply(
+        "📊 **Parse Mode Test Results:**\n\n" + "\n".join(results),
+        parse_mode=ParseMode.MARKDOWN
     )
-    
-    # Fix: href="url">sb>TEXT</b></a> -> <a href="url"><b>TEXT</b></a>
-    html_text = re.sub(
-        r'href="([^"]+)"[^>]*>sb>([^<]+)</b></a>',
-        r'<a href="\1"><b>\2</b></a>',
-        html_text
-    )
-    
-    # Fix: ### </b><a href -> <a href
-    html_text = re.sub(r'###\s*</b><a\s+', '<a ', html_text)
-    
-    # Remove empty bold tags
-    html_text = re.sub(r'</b><b>', '', html_text)
-    html_text = re.sub(r'<b>\s*</b>', '', html_text)
-    
-    # Fix unclosed tags
-    html_text = html_text.replace('<sb>', '<b>')
-    html_text = html_text.replace('</sb>', '</b>')
-    
-    # Ensure all <a> tags are properly closed
-    html_text = re.sub(r'<a\s+href="([^"]+)"[^>]*>([^<]+)(?!</a>)', r'<a href="\1">\2</a>', html_text)
-    
-    return html_text
