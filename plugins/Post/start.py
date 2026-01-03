@@ -67,80 +67,61 @@ async def set_commands(client: Client, message: Message):
     await message.reply_text("✅ Bot commands have been set.")
 
 #=====================================================================================
-@Client.on_message(filters.private & filters.command("format") & admin_filter)
-async def format_html(client: Client, message: Message):
-    """
-    Test HTML formatting. Usage:
-    1. /format <html text>
-    2. Reply to a message with /format
-    """
+@Client.on_message(filters.private & filters.command("format"))
+async def format_html_command(client: Client, message: Message):
+    """Format HTML text - Reply to message or provide HTML directly"""
     
-    # Get the HTML content
-    html_text = ""
+    html_content = ""
     
-    # Method 1: From reply
+    # Get HTML from reply or command arguments
     if message.reply_to_message:
+        # Get text from replied message
         if message.reply_to_message.text:
-            html_text = message.reply_to_message.text
+            html_content = message.reply_to_message.text
         elif message.reply_to_message.caption:
-            html_text = message.reply_to_message.caption
+            html_content = message.reply_to_message.caption
         else:
-            await message.reply("❌ Replied message has no text/caption to format.")
+            await message.reply("❌ Replied message has no text or caption.")
             return
-    # Method 2: From command arguments
     else:
+        # Get HTML from command arguments
         if len(message.command) < 2:
-            # Show help with HTML examples
-            help_text = """
-📝 **HTML Formatting Tester**
-
-**Usage:**
-1. `/format <html text>`
-2. Reply to a message with `/format`
-
-**Examples:**
-• `/format <b>Bold Text</b>`
-• `/format Click <a href="https://t.me">Here</a>`
-• `/format <code>monospace</code> text`
-
-**Supported HTML Tags:**
-`<b>` **Bold**
-`<i>` _Italic_
-`<u>` Underline
-`<s>` ~~Strikethrough~~
-`<a href="url">` [Link](url)
-`<code>` Monospace
-`<pre>` Preformatted block
-"""
-            await message.reply(help_text, parse_mode="Markdown", disable_web_page_preview=True)
+            # Show usage help
+            usage = (
+                "📝 **Usage:**\n"
+                "• `/format <html text>`\n"
+                "• Reply to a message with `/format`\n\n"
+                "**Example:**\n"
+                "`/format <b>bold</b> <i>italic</i>`"
+            )
+            await message.reply(usage, parse_mode="Markdown", disable_web_page_preview=True)
             return
         
-        html_text = message.text.split(None, 1)[1]
+        html_content = message.text.split(' ', 1)[1]
     
-    if not html_text.strip():
-        await message.reply("⚠️ No text provided to format.")
+    # Validate content
+    if not html_content.strip():
+        await message.reply("⚠️ No text to format.")
         return
     
+    # Send processing message
+    processing_msg = await message.reply("🔄 Formatting...")
+    
     try:
-        # Show processing message
-        processing_msg = await message.reply("🔄 **Processing HTML formatting...**", parse_mode="Markdown")
-        
-        # Send formatted message
+        # Send formatted HTML
         await message.reply(
-            html_text,
+            html_content,
             parse_mode="HTML",
             disable_web_page_preview=True,
-            quote=True  # Reply to original message
+            quote=True
         )
         
         # Delete processing message
         await processing_msg.delete()
         
     except Exception as e:
-        # Provide detailed error message
-        error_msg = f"""
-❌ **HTML Parsing Error**
-
-**Error:** `{str(e)}`
-
-**Your HTML (first 500 chars):**"""
+        # Clean up and show error
+        await processing_msg.delete()
+        
+        error_msg = f"❌ **Error:** `{str(e)[:200]}`"
+        await message.reply(error_msg, parse_mode="Markdown")
