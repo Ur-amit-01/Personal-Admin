@@ -68,60 +68,26 @@ async def set_commands(client: Client, message: Message):
 
 #=====================================================================================
 @Client.on_message(filters.private & filters.command("format"))
-async def format_html_command(client: Client, message: Message):
-    """Format HTML text - Reply to message or provide HTML directly"""
+async def format_debug(client: Client, message: Message):
+    """Debug version to see exactly what's happening"""
     
-    html_content = ""
+    await message.reply("🔄 /format command received!")
     
-    # Get HTML from reply or command arguments
-    if message.reply_to_message:
-        # Get text from replied message
-        if message.reply_to_message.text:
-            html_content = message.reply_to_message.text
-        elif message.reply_to_message.caption:
-            html_content = message.reply_to_message.caption
-        else:
-            await message.reply("❌ Replied message has no text or caption.")
-            return
-    else:
-        # Get HTML from command arguments
-        if len(message.command) < 2:
-            # Show usage help
-            usage = (
-                "📝 **Usage:**\n"
-                "• `/format <html text>`\n"
-                "• Reply to a message with `/format`\n\n"
-                "**Example:**\n"
-                "`/format <b>bold</b> <i>italic</i>`"
-            )
-            await message.reply(usage, parse_mode="Markdown", disable_web_page_preview=True)
-            return
-        
-        html_content = message.text.split(' ', 1)[1]
-    
-    # Validate content
-    if not html_content.strip():
-        await message.reply("⚠️ No text to format.")
-        return
-    
-    # Send processing message
-    processing_msg = await message.reply("🔄 Formatting...")
+    # Test with simple HTML first
+    test_html = "<b>TEST BOLD</b>"
     
     try:
-        # Send formatted HTML
-        await message.reply(
-            html_content,
-            parse_mode="HTML",
-            disable_web_page_preview=True,
-            quote=True
-        )
+        await message.reply(test_html, parse_mode="HTML")
+        await message.reply("✅ Simple test worked!")
         
-        # Delete processing message
-        await processing_msg.delete()
-        
+        # Now try user's HTML
+        if len(message.command) > 1:
+            user_html = message.text.split(' ', 1)[1]
+            await message.reply(f"📝 Your HTML: `{user_html[:50]}`", parse_mode="Markdown")
+            
+            # Try sending user's HTML
+            result = await message.reply(user_html, parse_mode="HTML")
+            await message.reply(f"✅ User HTML sent! ID: {result.id}")
+            
     except Exception as e:
-        # Clean up and show error
-        await processing_msg.delete()
-        
-        error_msg = f"❌ **Error:** `{str(e)[:200]}`"
-        await message.reply(error_msg, parse_mode="Markdown")
+        await message.reply(f"❌ Error at step: `{str(e)}`", parse_mode="Markdown")
