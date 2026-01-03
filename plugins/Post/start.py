@@ -196,7 +196,7 @@ async def html_to_markdown_command(client, message: Message):
             )
         else:
             # Send as code block
-            response = f"**✅ Converted HTML to Markdown:**\n\n```markdown\n{markdown_result}\n```"
+            response = f"**✅ Converted HTML to Markdown:**\n\nmarkdown\n{markdown_result}\n"
             await message.reply_text(response, disable_web_page_preview=True)
             
     except Exception as e:
