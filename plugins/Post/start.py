@@ -74,7 +74,7 @@ async def format_test_simple(client: Client, message: Message):
     # Test 1: Send a simple hardcoded HTML
     await message.reply("🧪 Test 1: Simple hardcoded HTML")
     try:
-        await message.reply("<b>BOLD TEXT</b>", parse_mode="HTML")
+        await message.reply("<b>BOLD TEXT</b>", parse_mode="html")
         await message.reply("✅ Test 1 PASSED!")
     except Exception as e:
         await message.reply(f"❌ Test 1 FAILED: {e}")
@@ -84,7 +84,7 @@ async def format_test_simple(client: Client, message: Message):
         user_html = message.text.split(' ', 1)[1]
         await message.reply(f"🧪 Test 2: Your HTML: {user_html[:30]}...")
         try:
-            await message.reply(user_html, parse_mode="HTML")
+            await message.reply(user_html, parse_mode="html")
             await message.reply("✅ Test 2 PASSED!")
         except Exception as e:
             await message.reply(f"❌ Test 2 FAILED: {e}")
