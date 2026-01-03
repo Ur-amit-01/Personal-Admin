@@ -143,4 +143,4 @@ async def format_html(client: Client, message: Message):
 
 **Error:** `{str(e)}`
 
-**Your HTML (first 500 chars):**
+**Your HTML (first 500 chars):**"""
