@@ -4,7 +4,6 @@ from config import *
 from plugins.helper.db import db
 import random
 from plugins.Post.admin_panel import admin_filter
-from html.parser import HTMLParser
 import re
 
 # =====================================================================================
@@ -68,136 +67,91 @@ async def set_commands(client: Client, message: Message):
     ])
     await message.reply_text("✅ Bot commands have been set.")
 
-#=====================================================================================
+#====================================================================================
 
-
-# Add to commands list in /set command
-#BotCommand("html2md", "📝 Convert HTML to Markdown")
-
-# HTML to Markdown converter class
-class HTMLToMarkdownConverter(HTMLParser):
-    def __init__(self):
-        super().__init__()
-        self.result = []
-        self.current_tag = None
-        self.link_url = None
-        self.link_text = []
-        
-    def handle_starttag(self, tag, attrs):
-        self.current_tag = tag.lower()
-        
-        if tag == 'a':
-            # Extract href from anchor tags
-            for attr, value in attrs:
-                if attr == 'href':
-                    self.link_url = value
-                    break
-        elif tag in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
-            # Add newline before headings
-            self.result.append('\n')
-        elif tag == 'br':
-            self.result.append('\n')
-        elif tag == 'hr':
-            self.result.append('\n---\n')
-        elif tag == 'li':
-            self.result.append('- ')
-            
-    def handle_endtag(self, tag):
-        tag = tag.lower()
-        
-        if tag == 'a' and self.link_url:
-            # Complete link in markdown format
-            link_text = ''.join(self.link_text).strip()
-            if link_text and self.link_url:
-                self.result.append(f'[{link_text}]({self.link_url})')
-            self.link_url = None
-            self.link_text = []
-        elif tag in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
-            self.result.append('\n\n')
-        elif tag in ['p', 'div']:
-            self.result.append('\n\n')
-        elif tag == 'li':
-            self.result.append('\n')
-            
-        self.current_tag = None
-        
-    def handle_data(self, data):
-        if self.current_tag == 'a':
-            self.link_text.append(data)
-        else:
-            # Apply markdown formatting based on tag
-            if self.current_tag in ['b', 'strong']:
-                self.result.append(f'**{data}**')
-            elif self.current_tag in ['i', 'em']:
-                self.result.append(f'*{data}*')
-            elif self.current_tag in ['code']:
-                self.result.append(f'`{data}`')
-            elif self.current_tag in ['h1']:
-                self.result.append(f'# {data}')
-            elif self.current_tag in ['h2']:
-                self.result.append(f'## {data}')
-            elif self.current_tag in ['h3']:
-                self.result.append(f'### {data}')
-            elif self.current_tag in ['h4', 'h5', 'h6']:
-                self.result.append(f'#### {data}')
-            else:
-                self.result.append(data)
-
-def html_to_markdown(html_text):
-    """Convert HTML to Markdown"""
-    # Clean common HTML issues
-    html_text = re.sub(r'</b><b>', '', html_text)
-    html_text = re.sub(r'### href=', '', html_text)
-    html_text = re.sub(r'<b>\s*</b>', '', html_text)
-    
-    # Create parser and parse
-    parser = HTMLToMarkdownConverter()
-    parser.feed(html_text)
-    
-    # Get result and clean up
-    markdown = ''.join(parser.result)
-    
-    # Post-processing
-    markdown = re.sub(r'\n{3,}', '\n\n', markdown)  # Remove excessive newlines
-    markdown = markdown.strip()
-    
-    return markdown
-
-# Command handler
-@Client.on_message(filters.private & filters.command("html2md"))
-async def html_to_markdown_command(client, message: Message):
-    # Check if replying to a message
-    if message.reply_to_message and message.reply_to_message.text:
-        html_content = message.reply_to_message.text
+@Client.on_message(filters.private & filters.command("format"))
+async def format_html_command(client, message: Message):
+    """
+    Convert HTML to Telegram formatted text
+    Usage: /format <html> or reply to a message with /format
+    """
+    # Get the HTML text
+    if message.reply_to_message:
+        html_text = message.reply_to_message.text or message.reply_to_message.caption
     else:
-        # Check if command has arguments
         if len(message.command) > 1:
-            html_content = ' '.join(message.command[1:])
+            html_text = ' '.join(message.command[1:])
         else:
             await message.reply_text(
                 "**Usage:**\n"
-                "• Reply to an HTML message with `/html2md`\n"
-                "• Or send `/html2md <your_html_here>`\n\n"
+                "• Reply to an HTML message with `/format`\n"
+                "• Or send `/format <your_html_here>`\n\n"
                 "**Example:**\n"
-                '/html2md <b>Hello</b> <a href="https://example.com">Click</a>'
+                '`/format <b>Hello</b> click <a href="https://example.com">here</a>`'
             )
             return
     
+    if not html_text:
+        await message.reply_text("❌ No text found to format.")
+        return
+    
+    # Send with HTML parse mode - Telegram will format it automatically
     try:
-        # Convert HTML to Markdown
-        markdown_result = html_to_markdown(html_content)
-        
-        # Prepare response
-        if len(markdown_result) > 4000:
-            # Send as file if too long
-            await message.reply_document(
-                document=("converted.md", markdown_result.encode()),
-                caption="✅ HTML converted to Markdown (sent as file due to length)"
-            )
-        else:
-            # Send as code block
-            response = f"**✅ Converted HTML to Markdown:**\n\nmarkdown\n{markdown_result}\n"
-            await message.reply_text(response, disable_web_page_preview=True)
-            
+        await message.reply_text(
+            html_text,
+            parse_mode="html",  # THIS IS THE MAGIC LINE
+            disable_web_page_preview=True,
+            reply_to_message_id=message.reply_to_message.id if message.reply_to_message else None
+        )
     except Exception as e:
-        await message.reply_text(f"❌ Error converting HTML:\n`{str(e)}`")
+        # If Telegram can't parse the HTML, try to clean it first
+        await message.reply_text(
+            "❌ Telegram couldn't parse the HTML. Trying cleaned version...",
+            reply_to_message_id=message.id
+        )
+        
+        # Clean common HTML issues
+        cleaned_html = clean_html_for_telegram(html_text)
+        
+        try:
+            await message.reply_text(
+                cleaned_html,
+                parse_mode="html",
+                disable_web_page_preview=True
+            )
+        except Exception as e2:
+            await message.reply_text(
+                f"❌ Failed to parse even after cleaning.\nError: `{str(e2)[:100]}`"
+            )
+
+def clean_html_for_telegram(html_text):
+    """Clean HTML to make it compatible with Telegram's parser"""
+    # Fix: ### href="url"sb>TEXT</b></a> -> <a href="url"><b>TEXT</b></a>
+    html_text = re.sub(
+        r'###\s*href="([^"]+)"[^>]*>sb>([^<]+)</b></a>',
+        r'<a href="\1"><b>\2</b></a>',
+        html_text
+    )
+    
+    # Fix: href="url">sb>TEXT</b></a> -> <a href="url"><b>TEXT</b></a>
+    html_text = re.sub(
+        r'href="([^"]+)"[^>]*>sb>([^<]+)</b></a>',
+        r'<a href="\1"><b>\2</b></a>',
+        html_text
+    )
+    
+    # Fix: ### </b><a href -> <a href
+    html_text = re.sub(r'###\s*</b><a\s+', '<a ', html_text)
+    
+    # Remove empty bold tags
+    html_text = re.sub(r'</b><b>', '', html_text)
+    html_text = re.sub(r'<b>\s*</b>', '', html_text)
+    
+    # Fix unclosed tags
+    html_text = html_text.replace('<sb>', '<b>')
+    html_text = html_text.replace('</sb>', '</b>')
+    
+    # Ensure all <a> tags are properly closed
+    html_text = re.sub(r'<a\s+href="([^"]+)"[^>]*>([^<]+)(?!</a>)', r'<a href="\1">\2</a>', html_text)
+    
+    return html_text
