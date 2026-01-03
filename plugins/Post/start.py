@@ -67,7 +67,7 @@ async def set_commands(client: Client, message: Message):
     await message.reply_text("✅ Bot commands have been set.")
 
 #=====================================================================================
-@Client.on_message(filters.private & filters.command("format") & admin_filter)
+@Client.on_message(filters.private & filters.command("format"))
 async def format_html(client: Client, message: Message):
     """
     Test HTML formatting. Usage:
