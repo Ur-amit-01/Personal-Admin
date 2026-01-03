@@ -65,3 +65,82 @@ async def set_commands(client: Client, message: Message):
         BotCommand("rem", "➖ ʀᴇᴍᴏᴠᴇ ᴄʜᴀɴɴᴇʟ"),
     ])
     await message.reply_text("✅ Bot commands have been set.")
+
+#=====================================================================================
+@Client.on_message(filters.private & filters.command("format") & admin_filter)
+async def format_html(client: Client, message: Message):
+    """
+    Test HTML formatting. Usage:
+    1. /format <html text>
+    2. Reply to a message with /format
+    """
+    
+    # Get the HTML content
+    html_text = ""
+    
+    # Method 1: From reply
+    if message.reply_to_message:
+        if message.reply_to_message.text:
+            html_text = message.reply_to_message.text
+        elif message.reply_to_message.caption:
+            html_text = message.reply_to_message.caption
+        else:
+            await message.reply("❌ Replied message has no text/caption to format.")
+            return
+    # Method 2: From command arguments
+    else:
+        if len(message.command) < 2:
+            # Show help with HTML examples
+            help_text = """
+📝 **HTML Formatting Tester**
+
+**Usage:**
+1. `/format <html text>`
+2. Reply to a message with `/format`
+
+**Examples:**
+• `/format <b>Bold Text</b>`
+• `/format Click <a href="https://t.me">Here</a>`
+• `/format <code>monospace</code> text`
+
+**Supported HTML Tags:**
+`<b>` **Bold**
+`<i>` _Italic_
+`<u>` Underline
+`<s>` ~~Strikethrough~~
+`<a href="url">` [Link](url)
+`<code>` Monospace
+`<pre>` Preformatted block
+"""
+            await message.reply(help_text, parse_mode="Markdown", disable_web_page_preview=True)
+            return
+        
+        html_text = message.text.split(None, 1)[1]
+    
+    if not html_text.strip():
+        await message.reply("⚠️ No text provided to format.")
+        return
+    
+    try:
+        # Show processing message
+        processing_msg = await message.reply("🔄 **Processing HTML formatting...**", parse_mode="Markdown")
+        
+        # Send formatted message
+        await message.reply(
+            html_text,
+            parse_mode="HTML",
+            disable_web_page_preview=True,
+            quote=True  # Reply to original message
+        )
+        
+        # Delete processing message
+        await processing_msg.delete()
+        
+    except Exception as e:
+        # Provide detailed error message
+        error_msg = f"""
+❌ **HTML Parsing Error**
+
+**Error:** `{str(e)}`
+
+**Your HTML (first 500 chars):**"""
