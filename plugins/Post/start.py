@@ -65,3 +65,37 @@ async def set_commands(client: Client, message: Message):
         BotCommand("rem", "➖ ʀᴇᴍᴏᴠᴇ ᴄʜᴀɴɴᴇʟ"),
     ])
     await message.reply_text("✅ Bot commands have been set.")
+
+#=====================================================================================
+@Client.on_message(filters.private & filters.command("format") & admin_filter)
+async def format_html(client: Client, message: Message):
+    if len(message.command) < 2:
+        await client.send_message(
+            chat_id=message.chat.id,
+            text=(
+                "❌ <b>Usage:</b>\n"
+                "<code>/format &lt;HTML formatted text&gt;</code>\n\n"
+                "Example:\n"
+                "<code>/format &lt;b&gt;Bold&lt;/b&gt;\n"
+                "&lt;a href=\"https://t.me\"&gt;Link&lt;/a&gt;</code>"
+            ),
+            parse_mode="HTML",
+            disable_web_page_preview=True
+        )
+        return
+
+    html_text = message.text.split(" ", 1)[1]
+
+    try:
+        await client.send_message(
+            chat_id=message.chat.id,
+            text=html_text,
+            parse_mode="HTML",
+            disable_web_page_preview=True
+        )
+    except Exception as e:
+        await client.send_message(
+            chat_id=message.chat.id,
+            text=f"❌ <b>HTML Error</b>\n<code>{e}</code>",
+            parse_mode="HTML"
+        )
