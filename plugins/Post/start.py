@@ -4,8 +4,6 @@ from config import *
 from plugins.helper.db import db
 import random
 from plugins.Post.admin_panel import admin_filter
-import re
-from pyrogram.enums import ParseMode
 
 # =====================================================================================
 
@@ -69,33 +67,22 @@ async def set_commands(client: Client, message: Message):
     await message.reply_text("✅ Bot commands have been set.")
 
 #====================================================================================
-
 @Client.on_message(filters.private & filters.command("format"))
-async def format_html_command(client: Client, message: Message):
+async def format_command(client: Client, message: Message):
+    # Check if /format is a reply to another message
+    if not message.reply_to_message:
+        await message.reply("❗ Please reply to a message using /format")
+        return
 
-    await message.reply("🔍 Testing parse modes...")
+    replied = message.reply_to_message
 
-    tests = [
-        (ParseMode.HTML, "<b>HTML Bold</b>"),
-        (ParseMode.MARKDOWN, "**Markdown Bold**"),
-        (ParseMode.MARKDOWN_V2, "\\*MarkdownV2 Bold\\*"),
-        (None, "<b>No Parse Mode</b>")
-    ]
+    # If replied message has text
+    if replied.text:
+        await message.reply(replied.text)
 
-    results = []
+    # If replied message has caption (photo, video, doc, etc.)
+    elif replied.caption:
+        await message.reply(replied.caption)
 
-    for parse_mode, text in tests:
-        try:
-            if parse_mode:
-                await message.reply(text, parse_mode=parse_mode)
-                results.append(f"✅ {parse_mode}")
-            else:
-                await message.reply(text)
-                results.append("✅ No parse mode")
-        except Exception as e:
-            results.append(f"❌ {parse_mode}: {e}")
-
-    await message.reply(
-        "📊 **Parse Mode Test Results:**\n\n" + "\n".join(results),
-        parse_mode=ParseMode.MARKDOWN
-    )
+    else:
+        await message.reply("❗ Replied message has no text to send")
