@@ -68,26 +68,23 @@ async def set_commands(client: Client, message: Message):
 
 #=====================================================================================
 @Client.on_message(filters.private & filters.command("format"))
-async def format_debug(client: Client, message: Message):
-    """Debug version to see exactly what's happening"""
+async def format_test_simple(client: Client, message: Message):
+    """Test HTML formatting step by step"""
     
-    await message.reply("🔄 /format command received!")
-    
-    # Test with simple HTML first
-    test_html = "<b>TEST BOLD</b>"
-    
+    # Test 1: Send a simple hardcoded HTML
+    await message.reply("🧪 Test 1: Simple hardcoded HTML")
     try:
-        await message.reply(test_html, parse_mode="HTML")
-        await message.reply("✅ Simple test worked!")
-        
-        # Now try user's HTML
-        if len(message.command) > 1:
-            user_html = message.text.split(' ', 1)[1]
-            await message.reply(f"📝 Your HTML: `{user_html[:50]}`", parse_mode="Markdown")
-            
-            # Try sending user's HTML
-            result = await message.reply(user_html, parse_mode="HTML")
-            await message.reply(f"✅ User HTML sent! ID: {result.id}")
-            
+        await message.reply("<b>BOLD TEXT</b>", parse_mode="HTML")
+        await message.reply("✅ Test 1 PASSED!")
     except Exception as e:
-        await message.reply(f"❌ Error at step: `{str(e)}`", parse_mode="Markdown")
+        await message.reply(f"❌ Test 1 FAILED: {e}")
+    
+    # Test 2: Try user's HTML if provided
+    if len(message.command) > 1:
+        user_html = message.text.split(' ', 1)[1]
+        await message.reply(f"🧪 Test 2: Your HTML: {user_html[:30]}...")
+        try:
+            await message.reply(user_html, parse_mode="HTML")
+            await message.reply("✅ Test 2 PASSED!")
+        except Exception as e:
+            await message.reply(f"❌ Test 2 FAILED: {e}")
