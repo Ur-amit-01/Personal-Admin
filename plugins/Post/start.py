@@ -68,23 +68,30 @@ async def set_commands(client: Client, message: Message):
 
 #=====================================================================================
 @Client.on_message(filters.private & filters.command("format"))
-async def format_test_simple(client: Client, message: Message):
-    """Test HTML formatting step by step"""
+async def format_simple(client: Client, message: Message):
+    """Simple markdown formatting"""
     
-    # Test 1: Send a simple hardcoded HTML
-    await message.reply("🧪 Test 1: Simple hardcoded HTML")
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    # Get text
+    text = ""
+    if message.reply_to_message:
+        text = message.reply_to_message.text or message.reply_to_message.caption or ""
+    else:
+        if len(message.command) < 2:
+            await message.reply("Usage: /format <text>")
+            return
+        text = message.text.split(' ', 1)[1]
+    
+    if not text:
+        await message.reply("No text provided.")
+        return
+    
     try:
-        await message.reply("<b>BOLD TEXT</b>", parse_mode="html")
-        await message.reply("✅ Test 1 PASSED!")
+        # Try markdown
+        await message.reply(text, parse_mode="markdown")
     except Exception as e:
-        await message.reply(f"❌ Test 1 FAILED: {e}")
-    
-    # Test 2: Try user's HTML if provided
-    if len(message.command) > 1:
-        user_html = message.text.split(' ', 1)[1]
-        await message.reply(f"🧪 Test 2: Your HTML: {user_html[:30]}...")
-        try:
-            await message.reply(user_html, parse_mode="html")
-            await message.reply("✅ Test 2 PASSED!")
-        except Exception as e:
-            await message.reply(f"❌ Test 2 FAILED: {e}")
+        error_message = f"❌ Formatting error:\n`{str(e)[:100]}`\n\nSending as plain text..."
+        await message.reply(error_message)
+        await message.reply(text)  # Send as plain text
