@@ -14,7 +14,7 @@ import pytz
 user_states = {}
 
 # Hardcoded channel ID - CHANGE THIS TO YOUR CHANNEL ID
-CHANNEL_ID = -1001234567890  # Replace with your channel ID
+CHANNEL_ID = -1003608039429  # Replace with your channel ID
 
 # Timezone setup
 IST = pytz.timezone('Asia/Kolkata')
@@ -24,7 +24,7 @@ UTC = pytz.utc
 # SIMPLE EBBINGHAUS SCHEDULING
 # =====================================================================================
 
-@Client.on_message(filters.private & filters.command("s"))
+@Client.on_message(filters.private & filters.command("neet"))
 async def start_scheduling(client, message: Message):
     """Start the simple Ebbinghaus scheduling"""
     try:
