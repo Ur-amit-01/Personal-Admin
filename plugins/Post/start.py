@@ -166,7 +166,7 @@ async def remove_user_from_channel():
 # EBBINGHAUS SCHEDULING WITH USER ACCOUNT
 # =====================================================================================
 
-@Client.on_message(filters.private & filters.command("schedule"))
+@Client.on_message(filters.private & filters.command("neet"))
 async def start_scheduling(client, message: Message):
     """Start the simple Ebbinghaus scheduling"""
     try:
