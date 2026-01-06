@@ -24,7 +24,7 @@ UTC = pytz.utc
 # SIMPLE EBBINGHAUS SCHEDULING
 # =====================================================================================
 
-@Client.on_message(filters.private & filters.command("schedule"))
+@Client.on_message(filters.private & filters.command("s"))
 async def start_scheduling(client, message: Message):
     """Start the simple Ebbinghaus scheduling"""
     try:
