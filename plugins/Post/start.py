@@ -106,14 +106,6 @@ async def schedule_posts(client, message: Message, user_id: int):
         # Parse input date
         input_date = datetime.datetime.strptime(date_input, "%Y-%m-%d").date()
         
-        if input_date < today_ist:
-            await message.reply_text(
-                "❌ **Date cannot be in the past!**\n"
-                f"Please enter today's date or a future date.\n"
-                f"Today is: `{today_ist.strftime('%Y-%m-%d')}`"
-            )
-            return
-        
         # Get the post text
         post_text = user_states[user_id]['post_text']
         
