@@ -5,7 +5,6 @@ from config import *
 from plugins.helper.db import db
 import random
 from plugins.Post.admin_panel import admin_filter
-import html
 import re
 import datetime
 from datetime import timedelta
