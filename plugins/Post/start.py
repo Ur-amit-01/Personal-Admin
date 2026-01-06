@@ -25,11 +25,11 @@ UTC = pytz.utc
 user_client = None
 
 # =====================================================================================
-# HELPER FUNCTIONS FOR USER ACCOUNT
+# HELPER FUNCTIONS FOR USER ACCOUNT - USING YOUR EXACT LOGIC
 # =====================================================================================
 
 async def start_user_client():
-    """Initialize and start the user client"""
+    """Initialize and start the user client using your session string"""
     global user_client
     try:
         user_client = Client(
@@ -37,100 +37,136 @@ async def start_user_client():
             session_string=SESSION_STRING,  # From your config
             api_id=API_ID,
             api_hash=API_HASH,
-            in_memory=True
+            sleep_threshold=60,  # Increased timeout as per your code
+            in_memory=True  # Better for short-lived sessions as per your code
         )
         await user_client.start()
-        print("✅ User client started successfully")
-        return True
+        user_id = (await user_client.get_me()).id
+        print(f"✅ User client started successfully (ID: {user_id})")
+        return True, user_id
     except Exception as e:
         print(f"❌ Failed to start user client: {e}")
-        return False
+        return False, None
 
 async def ensure_user_in_channel():
-    """Ensure user account is admin in the channel"""
+    """Check if user is already in channel"""
     try:
-        # Check if user is already in channel
-        try:
-            member = await user_client.get_chat_member(CHANNEL_ID, "me")
-            
-            # Check if already admin
-            if member.status == ChatMemberStatus.ADMINISTRATOR:
-                print("✅ User is already admin in channel")
-                return True
-            else:
-                # User is member but not admin
-                print("ℹ️ User is member but not admin")
-                return False
-                
-        except Exception as e:
-            print(f"ℹ️ User not in channel: {e}")
-            return False
-            
+        member = await user_client.get_chat_member(CHANNEL_ID, "me")
+        return member.status == ChatMemberStatus.ADMINISTRATOR
     except Exception as e:
-        print(f"❌ Error checking user status: {e}")
+        print(f"User not in channel or not admin: {e}")
         return False
 
 async def add_user_to_channel():
-    """Add user account to channel as admin"""
+    """Add user account to channel as admin - EXACT LOGIC FROM YOUR CODE"""
     try:
-        # Create invite link using bot
-        from pyrogram import Client as BotClient
-        bot_client = BotClient("bot", bot_token=BOT_TOKEN, api_id=API_ID, api_hash=API_HASH)
+        # First check bot permissions - EXACTLY LIKE YOUR CODE
+        bot_client = Client("bot", bot_token=BOT_TOKEN, api_id=API_ID, api_hash=API_HASH)
         await bot_client.start()
         
-        invite_link = await bot_client.create_chat_invite_link(CHANNEL_ID)
-        await bot_client.stop()
+        try:
+            bot_member = await bot_client.get_chat_member(CHANNEL_ID, "me")
+            if not (bot_member.privileges.can_invite_users and bot_member.privileges.can_promote_members):
+                await bot_client.stop()
+                return False, "❌ Need 'Invite Users' & 'Promote Members' permissions"
+        except Exception as e:
+            await bot_client.stop()
+            return False, f"❌ Permission check failed: {str(e)}"
         
-        # Join channel with user account
-        await user_client.join_chat(invite_link.invite_link)
-        await asyncio.sleep(2)
-        
-        # Promote to admin using bot
-        bot_client = BotClient("bot", bot_token=BOT_TOKEN, api_id=API_ID, api_hash=API_HASH)
-        await bot_client.start()
-        
+        # Get user client info
         user_id = (await user_client.get_me()).id
-        await bot_client.promote_chat_member(
-            CHANNEL_ID,
-            user_id,
-            privileges=ChatPrivileges(
-                can_post_messages=True,
-                can_edit_messages=True,
-                can_delete_messages=True,
-                can_restrict_members=False,
-                can_promote_members=False,
-                can_change_info=False,
-                can_invite_users=True,
-                can_pin_messages=True,
-                can_manage_video_chats=False
+        await bot_client.stop()
+        
+        # Check if user is already participant
+        try:
+            user_member = await user_client.get_chat_member(CHANNEL_ID, "me")
+            if user_member.status == ChatMemberStatus.ADMINISTRATOR:
+                return True, "✅ Assistant is already admin in channel"
+            elif user_member.status in [ChatMemberStatus.MEMBER, ChatMemberStatus.RESTRICTED]:
+                # User is member but not admin, need to promote
+                pass
+        except:
+            # User not in channel, need to invite
+            pass
+        
+        # Re-start bot client for operations
+        bot_client = Client("bot", bot_token=BOT_TOKEN, api_id=API_ID, api_hash=API_HASH)
+        await bot_client.start()
+        
+        # Create invite link - EXACTLY LIKE YOUR CODE
+        try:
+            invite_url = (await bot_client.create_chat_invite_link(
+                CHANNEL_ID,
+                creates_join_request=True
+            )).invite_link
+        except Exception as e:
+            await bot_client.stop()
+            return False, f"❌ Invite creation failed: {str(e)}"
+        
+        # Join channel with retry - EXACTLY LIKE YOUR CODE
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                await user_client.join_chat(invite_url)
+                await asyncio.sleep(2)  # Wait for join to complete
+                break
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    await bot_client.stop()
+                    return False, f"❌ Join failed after {max_retries} attempts: {str(e)}"
+                await asyncio.sleep(3)
+                continue
+        
+        # Promote with confirmation - EXACTLY LIKE YOUR CODE
+        try:
+            await bot_client.promote_chat_member(
+                CHANNEL_ID, 
+                user_id,
+                privileges=ChatPrivileges(
+                    can_invite_users=True,
+                    can_manage_chat=True,
+                    can_delete_messages=True,
+                    can_post_messages=True,
+                    can_edit_messages=True,
+                    can_pin_messages=True,
+                    can_restrict_members=False,
+                    can_promote_members=False
+                )
             )
-        )
+            # Verify promotion
+            await asyncio.sleep(2)
+            assistant_member = await bot_client.get_chat_member(CHANNEL_ID, user_id)
+            if assistant_member.status != ChatMemberStatus.ADMINISTRATOR:
+                await bot_client.stop()
+                return False, "❌ Assistant promotion verification failed"
+        except Exception as e:
+            await bot_client.stop()
+            return False, f"❌ Promotion failed: {str(e)}"
         
         await bot_client.stop()
-        await asyncio.sleep(2)
-        
-        print("✅ User added and promoted to admin")
-        return True
+        return True, "✅ Assistant added and promoted successfully"
         
     except Exception as e:
-        print(f"❌ Failed to add user to channel: {e}")
-        return False
+        try:
+            await bot_client.stop()
+        except:
+            pass
+        return False, f"❌ Error: {str(e)}"
 
 async def remove_user_from_channel():
-    """Remove user account from channel"""
+    """Remove user account from channel - EXACT LOGIC FROM YOUR CODE"""
     try:
+        await asyncio.sleep(5)  # Final delay as per your code
         await user_client.leave_chat(CHANNEL_ID)
-        print("✅ User removed from channel")
-        return True
+        return True, "✅ Assistant removed from channel"
     except Exception as e:
-        print(f"❌ Failed to remove user from channel: {e}")
-        return False
+        return False, f"❌ Failed to remove assistant: {str(e)}"
 
 # =====================================================================================
 # EBBINGHAUS SCHEDULING WITH USER ACCOUNT
 # =====================================================================================
 
-@Client.on_message(filters.private & filters.command("neet"))
+@Client.on_message(filters.private & filters.command("schedule"))
 async def start_scheduling(client, message: Message):
     """Start the simple Ebbinghaus scheduling"""
     try:
@@ -236,43 +272,50 @@ async def schedule_posts(client, message: Message, user_id: int):
         # Parse input date
         input_date = datetime.datetime.strptime(date_input, "%Y-%m-%d").date()
         
-        # Initialize user client
-        if not user_client:
-            success = await start_user_client()
-            if not success:
-                await message.reply_text("❌ **Failed to initialize scheduler. Please try again.**")
-                return
-        
-        # Ensure user is in channel as admin
-        is_in_channel = await ensure_user_in_channel()
-        if not is_in_channel:
-            await message.reply_text("⏳ **Adding scheduler to channel...**")
-            success = await add_user_to_channel()
-            if not success:
-                await message.reply_text("❌ **Failed to add scheduler to channel. Please make sure bot is admin.**")
-                return
-        
         # Get state data
         state = user_states[user_id]
         post_text = state.get('post_text', '')
         media = state.get('media')
         media_type = state.get('media_type')
         
+        # Send initial status
+        status_msg = await message.reply_text("⏳ **Initializing scheduler assistant...**")
+        
+        # Initialize user client
+        success, assistant_id = await start_user_client()
+        if not success:
+            await status_msg.edit_text("❌ **Failed to initialize scheduler. Please try again.**")
+            del user_states[user_id]
+            return
+        
+        # Ensure user is in channel as admin
+        await status_msg.edit_text("🔍 **Checking assistant status in channel...**")
+        is_in_channel = await ensure_user_in_channel()
+        
+        if not is_in_channel:
+            await status_msg.edit_text("⏳ **Adding assistant to channel...**")
+            success, result_msg = await add_user_to_channel()
+            if not success:
+                await status_msg.edit_text(f"❌ **{result_msg}**")
+                
+                # Clean up
+                try:
+                    await user_client.stop()
+                except:
+                    pass
+                del user_states[user_id]
+                return
+            else:
+                await status_msg.edit_text(f"✅ **{result_msg}**")
+                await asyncio.sleep(2)
+        
         # Ebbinghaus intervals (days)
         intervals = [1, 3, 7, 14, 30, 60, 90]
         review_names = ["R1", "R2", "R3", "R4", "R5", "R6", "R7"]
         
-        # Create summary
-        summary = f"✅ **7 Posts Scheduling Started!**\n\n"
-        summary += f"**Start Date:** {input_date.strftime('%d %B %Y')}\n"
-        summary += f"**Posting Time:** 9:00 AM IST\n\n"
-        summary += "📋 **Progress:**\n"
-        
-        # Send initial status
-        status_msg = await message.reply_text("⏳ **Starting to schedule posts...**")
-        
         # Schedule each post
         scheduled_count = 0
+        summary_lines = []
         
         for i, day in enumerate(intervals):
             review_date = input_date + timedelta(days=day)
@@ -293,6 +336,13 @@ async def schedule_posts(client, message: Message, user_id: int):
                 caption += f"\n\n{post_text}"
             
             try:
+                # Check if date is too far in future (Telegram's limit is ~366 days)
+                max_date = datetime.datetime.now(UTC) + timedelta(days=365)
+                if utc_time > max_date:
+                    summary_lines.append(f"• ❌ **{review_names[i]}:** Date too far in future (max 1 year)")
+                    await asyncio.sleep(1)
+                    continue
+                
                 if media:
                     # Schedule media
                     if media_type == 'photo' and media.photo:
@@ -325,45 +375,56 @@ async def schedule_posts(client, message: Message, user_id: int):
                     )
                 
                 scheduled_count += 1
+                summary_lines.append(f"• ✅ **{review_names[i]}:** {review_date.strftime('%d %B %Y')}")
                 
                 # Update progress
-                progress_msg = f"✅ **{review_names[i]}** scheduled for {review_date.strftime('%d %B %Y')}"
-                await status_msg.edit_text(f"⏳ **Progress:** {i+1}/7 done\n{progress_msg}")
+                progress_percent = int((i + 1) / len(intervals) * 100)
+                progress_bar = "█" * (progress_percent // 10) + "░" * (10 - progress_percent // 10)
+                await status_msg.edit_text(
+                    f"⏳ **Progress:** {i+1}/{len(intervals)} ({progress_percent}%)\n"
+                    f"`[{progress_bar}]`\n"
+                    f"✅ **{review_names[i]}** scheduled for {review_date.strftime('%d %B %Y')}"
+                )
                 
                 # Small delay to avoid rate limiting
-                await asyncio.sleep(1)
+                await asyncio.sleep(1.5)
                 
             except Exception as e:
                 error_msg = str(e)
-                if "SCHEDULE_DATE_INVALID" in error_msg:
-                    summary += f"• ❌ **{review_names[i]}:** Date too far in future\n"
+                if "SCHEDULE_DATE_INVALID" in error_msg or "Date too far" in error_msg:
+                    summary_lines.append(f"• ❌ **{review_names[i]}:** Date too far in future")
+                elif "SCHEDULE_TOO_MUCH" in error_msg:
+                    summary_lines.append(f"• ❌ **{review_names[i]}:** Too many scheduled messages")
                 else:
-                    summary += f"• ❌ **{review_names[i]}:** Failed - {error_msg[:50]}...\n"
+                    summary_lines.append(f"• ❌ **{review_names[i]}:** Failed - {error_msg[:50]}...")
                 
                 await asyncio.sleep(2)  # Longer delay on error
         
-        # Final summary
-        summary = f"✅ **{scheduled_count}/7 Posts Scheduled Successfully!**\n\n"
+        # Remove user from channel after scheduling
+        await status_msg.edit_text("⏳ **Cleaning up assistant...**")
+        success, cleanup_msg = await remove_user_from_channel()
+        
+        # Stop user client
+        try:
+            await user_client.stop()
+        except:
+            pass
+        
+        # Clear user state
+        del user_states[user_id]
+        
+        # Prepare final summary
+        summary = f"📊 **Scheduling Complete!**\n\n"
+        summary += f"**✅ {scheduled_count}/{len(intervals)} posts scheduled successfully**\n\n"
         summary += f"**Start Date:** {input_date.strftime('%d %B %Y')}\n"
-        summary += f"**Posting Time:** 9:00 AM IST\n\n"
-        
-        for i, day in enumerate(intervals):
-            review_date = input_date + timedelta(days=day)
-            summary += f"• **{review_names[i]} (Day {day}):** {review_date.strftime('%d %B %Y')}\n"
-        
-        summary += f"\n📢 **Channel ID:** `{CHANNEL_ID}`"
-        summary += f"\n⏰ **All times are in IST (UTC+5:30)**"
+        summary += f"**Posting Time:** 9:00 AM IST\n"
+        summary += f"**Channel:** `{CHANNEL_ID}`\n\n"
+        summary += "**Schedule Summary:**\n" + "\n".join(summary_lines)
+        summary += f"\n\n**Cleanup:** {cleanup_msg}"
         
         # Show current IST time
         current_ist = datetime.datetime.now(IST).strftime('%d %B %Y, %I:%M %p %Z')
         summary += f"\n\n🕐 **Current IST Time:** {current_ist}"
-        
-        # Remove user from channel after scheduling
-        await message.reply_text("⏳ **Cleaning up scheduler...**")
-        await remove_user_from_channel()
-        
-        # Clear user state
-        del user_states[user_id]
         
         # Send final summary
         await status_msg.delete()
@@ -375,11 +436,17 @@ async def schedule_posts(client, message: Message, user_id: int):
             "Please use **YYYY-MM-DD** format.\n"
             f"*Example: {datetime.datetime.now(IST).date().strftime('%Y-%m-%d')}*"
         )
+        if user_id in user_states:
+            del user_states[user_id]
     except Exception as e:
         await message.reply_text(f"❌ **Error:** {str(e)}")
         # Clean up on error
         try:
             await remove_user_from_channel()
+        except:
+            pass
+        try:
+            await user_client.stop()
         except:
             pass
         if user_id in user_states:
@@ -436,7 +503,6 @@ async def set_commands(client: Client, message: Message):
     await client.set_bot_commands([
         BotCommand("start", "🤖 ꜱᴛᴀʀᴛ ᴍᴇ"),
         BotCommand("neet", "📅 ꜱᴄʜᴇᴅᴜʟᴇ ᴇʙʙɪɴɢʜᴀᴜꜱ ʀᴇᴠɪᴇᴡꜱ"),
-        BotCommand("format", "📅 HTML to Markdown"),
         BotCommand("channels", "📋 ʟɪꜱᴛ ᴏꜰ ᴄᴏɴɴᴇᴄᴛᴇᴅ ᴄʜᴀɴɴᴇʟꜱ"),
         BotCommand("admin", "🛠️ ᴀᴅᴍɪɴ ᴘᴀɴᴇʟ"),
         BotCommand("post", "📢 ꜱᴇɴᴅ ᴘᴏꜱᴛ"),
@@ -461,22 +527,3 @@ async def format_command(client: Client, message: Message):
         await message.reply(replied.caption)
     else:
         await message.reply("❗ Replied message has no text to send")
-
-# =====================================================================================
-# START USER CLIENT WHEN BOT STARTS
-# =====================================================================================
-
-#async def initialize():
-    #"""Initialize user client on startup"""
-    #await start_user_client()
-    #print("🚀 Scheduler ready!")
-
-# Run initialization when bot starts
-#import threading
-#def run_async_init():
-    #loop = asyncio.new_event_loop()
-    #asyncio.set_event_loop(loop)
-    #loop.run_until_complete(initialize())
-
-#thread = threading.Thread(target=run_async_init, daemon=True)
-#thread.start()
