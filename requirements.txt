@@ -16,3 +16,4 @@ gunicorn
 flask
 matplotlib
 psutil
+ytthumb
