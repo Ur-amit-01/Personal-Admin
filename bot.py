@@ -3,7 +3,7 @@ import logging
 import logging.config
 from pyrogram import Client
 from config import *
-from plugins.Post.Posting import restore_pending_deletions
+
 
 logging.config.fileConfig('logging.conf')
 logging.getLogger().setLevel(logging.INFO)
@@ -28,11 +28,8 @@ class Bot(Client):
         self.mention = me.mention
         self.username = me.username
 
-        await restore_pending_deletions(self)
-
         logging.info(f"{me.first_name} ✅✅ BOT started successfully ✅✅")
-        logging.info(f"{me.first_name} Pending deletions restored successfully.")
-
+        
         # Notify admins if enabled in config
         if RESTART_NOTIFICATION:
             for admin_id in ADMIN:
